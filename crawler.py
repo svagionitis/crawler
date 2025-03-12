@@ -31,7 +31,7 @@ def init_db(database_name):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 domain TEXT NOT NULL,
                 date_inserted DATETIME NOT NULL,
-                link TEXT NOT NULL UNIQUE,
+                link TEXT NOT NULL,
                 content TEXT NOT NULL,
                 content_hash TEXT NOT NULL UNIQUE
             )
