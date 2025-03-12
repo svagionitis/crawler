@@ -33,7 +33,7 @@ def init_db(database_name):
                 date_inserted DATETIME NOT NULL,
                 link TEXT NOT NULL,
                 content TEXT NOT NULL,
-                content_hash TEXT NOT NULL UNIQUE
+                content_hash TEXT NOT NULL
             )
             """
         )
