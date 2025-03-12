@@ -32,6 +32,7 @@ def init_db(database_name):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 domain TEXT NOT NULL,
                 date_inserted DATETIME NOT NULL,
+                date_crawled DATETIME,
                 link TEXT NOT NULL,
                 content TEXT,
                 content_hash TEXT,
@@ -63,17 +64,17 @@ def save_link_to_db(database_name, domain, link, robots_parser, status="pending"
         logging.error(f"Database error while saving link: {e}")
 
 def update_link_in_db(database_name, link, content, content_hash):
-    """Update a link in the database with content and hash, and mark it as crawled."""
+    """Update a link in the database with content, hash, and date_crawled, and mark it as crawled."""
     try:
         with sqlite3.connect(database_name) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
                 UPDATE crawled_data
-                SET content = ?, content_hash = ?, status = 'crawled'
+                SET content = ?, content_hash = ?, status = 'crawled', date_crawled = ?
                 WHERE link = ?
                 """,
-                (content, content_hash, link),
+                (content, content_hash, datetime.now(), link),
             )
             conn.commit()
             logging.info(f"Updated link in database: {link}")
