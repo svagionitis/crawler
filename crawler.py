@@ -41,8 +41,12 @@ def init_db(database_name):
         )
         conn.commit()
 
-def save_link_to_db(database_name, domain, link, status="pending"):
-    """Save a link to the database with a given status."""
+def save_link_to_db(database_name, domain, link, robots_parser, status="pending"):
+    """Save a link to the database with a given status, if allowed by robots.txt."""
+    if robots_parser and not robots_parser.can_fetch(USER_AGENT, link):
+        logging.info(f"Skipping disallowed link: {link}")
+        return
+
     try:
         with sqlite3.connect(database_name) as conn:
             cursor = conn.cursor()
@@ -87,14 +91,17 @@ def fetch_page(url):
         logging.error(f"Failed to fetch {url}: {e}")
         return None
 
-def extract_links(base_url, html_content):
-    """Extract all links from the HTML content that belong to the same domain."""
+def extract_links(base_url, html_content, robots_parser):
+    """Extract all links from the HTML content that belong to the same domain and are allowed by robots.txt."""
     soup = BeautifulSoup(html_content, "html.parser")
     links = set()
     for a_tag in soup.find_all("a", href=True):
         link = urljoin(base_url, a_tag["href"])
         if urlparse(link).netloc == urlparse(base_url).netloc:
-            links.add(link)
+            if not robots_parser or robots_parser.can_fetch(USER_AGENT, link):
+                links.add(link)
+            else:
+                logging.info(f"Skipping disallowed link: {link}")
     return links
 
 def compute_hash(content):
@@ -137,19 +144,10 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume):
     # Initialize the database
     init_db(database_name)
 
-    # Load pending links if resuming
-    to_crawl = []
-    if resume:
-        logging.info(f"Resuming from existing database: {database_name}")
-        to_crawl = load_pending_links(database_name)
-    else:
-        # Start with the initial URL
-        to_crawl = [start_url]
-        save_link_to_db(database_name, domain, start_url)
-
     # Initialize robots.txt parser
-    robots_parser = RobotFileParser()
+    robots_parser = None
     if respect_robots:
+        robots_parser = RobotFileParser()
         robots_url = urljoin(start_url, "/robots.txt")
         robots_content = requests.get(robots_url, timeout=10)
         try:
@@ -161,6 +159,16 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume):
                 logging.info(f"Using crawl delay from robots.txt: {crawl_delay} seconds")
         except Exception as e:
             logging.warning(f"Failed to read robots.txt: {e}")
+
+    # Load pending links if resuming
+    to_crawl = []
+    if resume:
+        logging.info(f"Resuming from existing database: {database_name}")
+        to_crawl = load_pending_links(database_name)
+    else:
+        # Start with the initial URL
+        to_crawl = [start_url]
+        save_link_to_db(database_name, domain, start_url, robots_parser)
 
     # Initialize visited hashes for duplicate detection
     visited_hashes = set()
@@ -190,9 +198,9 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume):
         visited_hashes.add(content_hash)
 
         # Extract and save new links
-        new_links = extract_links(current_url, content)
+        new_links = extract_links(current_url, content, robots_parser)
         for link in new_links:
-            save_link_to_db(database_name, domain, link)
+            save_link_to_db(database_name, domain, link, robots_parser)
 
         # Add new links to the queue
         to_crawl.extend(new_links)
