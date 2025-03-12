@@ -21,9 +21,6 @@ def get_log_file_name(domain):
     """Generate the log filename based on the domain."""
     return f"crawler_{domain}.log"
 
-# Database setup
-DATABASE_NAME = "crawled_data.db"
-
 def init_db(database_name):
     """Initialize the SQLite database and create the table if it doesn't exist."""
     with sqlite3.connect(database_name) as conn:
