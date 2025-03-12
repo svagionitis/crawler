@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
+import os
 
 import requests
 from bs4 import BeautifulSoup
@@ -32,31 +33,48 @@ def init_db(database_name):
                 domain TEXT NOT NULL,
                 date_inserted DATETIME NOT NULL,
                 link TEXT NOT NULL,
-                content TEXT NOT NULL,
-                content_hash TEXT NOT NULL
+                content TEXT,
+                content_hash TEXT,
+                status TEXT NOT NULL CHECK(status IN ('pending', 'crawled'))
             )
             """
         )
         conn.commit()
 
-def save_to_db(database_name, domain, link, content, content_hash):
-    """Save the crawled data to the database."""
+def save_link_to_db(database_name, domain, link, status="pending"):
+    """Save a link to the database with a given status."""
     try:
         with sqlite3.connect(database_name) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO crawled_data (domain, date_inserted, link, content, content_hash)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT OR IGNORE INTO crawled_data (domain, date_inserted, link, status)
+                VALUES (?, ?, ?, ?)
                 """,
-                (domain, datetime.now(), link, content, content_hash),
+                (domain, datetime.now(), link, status),
             )
             conn.commit()
-            logging.info(f"Saved to database: {link}")
-    except sqlite3.IntegrityError:
-        logging.warning(f"Duplicate content or link skipped: {link}")
+            logging.info(f"Saved link to database: {link} (status: {status})")
     except sqlite3.Error as e:
-        logging.error(f"Database error: {e}")
+        logging.error(f"Database error while saving link: {e}")
+
+def update_link_in_db(database_name, link, content, content_hash):
+    """Update a link in the database with content and hash, and mark it as crawled."""
+    try:
+        with sqlite3.connect(database_name) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE crawled_data
+                SET content = ?, content_hash = ?, status = 'crawled'
+                WHERE link = ?
+                """,
+                (content, content_hash, link),
+            )
+            conn.commit()
+            logging.info(f"Updated link in database: {link}")
+    except sqlite3.Error as e:
+        logging.error(f"Database error while updating link: {e}")
 
 def fetch_page(url):
     """Fetch the content of a web page."""
@@ -83,7 +101,19 @@ def compute_hash(content):
     """Compute the SHA-256 hash of the content."""
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
-def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay):
+def load_pending_links(database_name):
+    """Load all pending links from the database."""
+    pending_links = []
+    try:
+        with sqlite3.connect(database_name) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT link FROM crawled_data WHERE status = 'pending'")
+            pending_links = [row[0] for row in cursor.fetchall()]
+    except sqlite3.Error as e:
+        logging.error(f"Failed to load pending links from database: {e}")
+    return pending_links
+
+def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume):
     """Crawl the site starting from the given URL."""
     # Parse the domain
     domain = urlparse(start_url).netloc
@@ -99,8 +129,23 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay):
         handlers=[logging.FileHandler(log_file_name), logging.StreamHandler()],
     )
 
+    # Check if the database exists when resuming
+    if resume and not os.path.exists(database_name):
+        logging.error(f"Database not found: {database_name}. Cannot resume.")
+        return
+
     # Initialize the database
     init_db(database_name)
+
+    # Load pending links if resuming
+    to_crawl = []
+    if resume:
+        logging.info(f"Resuming from existing database: {database_name}")
+        to_crawl = load_pending_links(database_name)
+    else:
+        # Start with the initial URL
+        to_crawl = [start_url]
+        save_link_to_db(database_name, domain, start_url)
 
     # Initialize robots.txt parser
     robots_parser = RobotFileParser()
@@ -117,17 +162,11 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay):
         except Exception as e:
             logging.warning(f"Failed to read robots.txt: {e}")
 
-    # Initialize visited links and hashes
-    visited_links = set()
+    # Initialize visited hashes for duplicate detection
     visited_hashes = set()
-
-    # Queue for links to crawl
-    to_crawl = [start_url]
 
     while to_crawl:
         current_url = to_crawl.pop(0)
-        if current_url in visited_links:
-            continue
 
         # Check robots.txt
         if respect_robots and not robots_parser.can_fetch(USER_AGENT, current_url):
@@ -146,16 +185,17 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay):
             logging.info(f"Skipping duplicate content: {current_url}")
             continue
 
-        # Save to database
-        save_to_db(database_name, domain, current_url, content, content_hash)
-
-        # Mark as visited
-        visited_links.add(current_url)
+        # Save content and mark as crawled
+        update_link_in_db(database_name, current_url, content, content_hash)
         visited_hashes.add(content_hash)
 
-        # Extract and add new links to the queue
+        # Extract and save new links
         new_links = extract_links(current_url, content)
-        to_crawl.extend(new_links - visited_links)
+        for link in new_links:
+            save_link_to_db(database_name, domain, link)
+
+        # Add new links to the queue
+        to_crawl.extend(new_links)
 
         # Respect the crawl delay
         logging.info(f"Waiting for {crawl_delay} seconds before the next request...")
@@ -181,10 +221,15 @@ def main():
         default=30,
         help="Crawl delay in seconds (default: 30). If robots.txt specifies a delay, it will override this.",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume crawling from an existing database.",
+    )
     args = parser.parse_args()
 
     # Start crawling
-    crawl_site(args.url, args.respect_robots, args.no_duplicates, args.crawl_delay)
+    crawl_site(args.url, args.respect_robots, args.no_duplicates, args.crawl_delay, args.resume)
 
 if __name__ == "__main__":
     main()
