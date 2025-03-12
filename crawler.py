@@ -10,19 +10,16 @@ from urllib.robotparser import RobotFileParser
 import requests
 from bs4 import BeautifulSoup
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("crawler.log"), logging.StreamHandler()],
-)
-
 # User agent for the crawler
 USER_AGENT = "Crawler/1.0 (+https://example.com/crawler)"
 
 def get_database_name(domain):
     """Generate the database filename based on the domain."""
     return f"crawled_data_{domain}.db"
+
+def get_log_file_name(domain):
+    """Generate the log filename based on the domain."""
+    return f"crawler_{domain}.log"
 
 # Database setup
 DATABASE_NAME = "crawled_data.db"
@@ -94,8 +91,16 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay):
     # Parse the domain
     domain = urlparse(start_url).netloc
 
-    # Generate the database name
+    # Generate the database and log file names
     database_name = get_database_name(domain)
+    log_file_name = get_log_file_name(domain)
+
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[logging.FileHandler(log_file_name), logging.StreamHandler()],
+    )
 
     # Initialize the database
     init_db(database_name)
