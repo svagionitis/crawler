@@ -51,15 +51,37 @@ def save_link_to_db(database_name, domain, link, robots_parser, status="pending"
     try:
         with sqlite3.connect(database_name) as conn:
             cursor = conn.cursor()
+            # Check if the link already exists and is pending
             cursor.execute(
                 """
-                INSERT OR IGNORE INTO crawled_data (domain, date_inserted, link, status)
-                VALUES (?, ?, ?, ?)
+                SELECT id FROM crawled_data WHERE link = ? AND status = 'pending'
                 """,
-                (domain, datetime.now(), link, status),
+                (link,),
             )
+            existing_link = cursor.fetchone()
+
+            if existing_link:
+                # Update the date_inserted for the existing pending link
+                cursor.execute(
+                    """
+                    UPDATE crawled_data
+                    SET date_inserted = ?
+                    WHERE id = ?
+                    """,
+                    (datetime.now(), existing_link[0]),
+                )
+                logging.info(f"Updated date_inserted for pending link: {link}")
+            else:
+                # Insert the new link
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO crawled_data (domain, date_inserted, link, status)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (domain, datetime.now(), link, status),
+                )
+                logging.info(f"Saved link to database: {link} (status: {status})")
             conn.commit()
-            logging.info(f"Saved link to database: {link} (status: {status})")
     except sqlite3.Error as e:
         logging.error(f"Database error while saving link: {e}")
 
