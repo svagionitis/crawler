@@ -101,3 +101,15 @@ def load_pending_links(database_name):
     except sqlite3.Error as e:
         logging.error(f"Failed to load pending links from database: {e}")
     return pending_links
+
+def is_database_empty(database_name):
+    """Check if the database is empty."""
+    try:
+        with sqlite3.connect(database_name) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM crawled_data")
+            count = cursor.fetchone()[0]
+            return count == 0
+    except sqlite3.Error as e:
+        logging.error(f"Failed to check if database is empty: {e}")
+        return True  # Assume empty if there's an error

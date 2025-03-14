@@ -5,7 +5,7 @@ import time
 import os
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
-from database import init_db, save_link_to_db, update_link_in_db, load_pending_links, get_database_name
+from database import init_db, save_link_to_db, update_link_in_db, load_pending_links, get_database_name, is_database_empty
 from utils import fetch_page, extract_links, compute_hash
 from config import USER_AGENT
 
@@ -31,8 +31,7 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume):
 
     # Check if the database exists when resuming
     if resume and not os.path.exists(database_name):
-        logging.error(f"Database not found: {database_name}. Cannot resume.")
-        return
+        logging.warning(f"Database not found: {database_name}. Creating a new database and starting fresh.")
 
     # Initialize the database
     init_db(database_name)
@@ -55,7 +54,9 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume):
 
     # Load pending links if resuming
     to_crawl = []
-    if resume:
+    # If we want to resume and the database is not empty, load pending links,
+    # else start with the initial URL
+    if resume and not is_database_empty(database_name):
         logging.info(f"Resuming from existing database: {database_name}")
         to_crawl = load_pending_links(database_name)
     else:
