@@ -116,12 +116,10 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume):
 
         # Crawl the page
         content = crawl_page(database_name, current_url, robots_parser, no_duplicates, visited_hashes)
-        if not content:
-            continue
-
-        # Process new links
-        new_links = process_new_links(database_name, current_url, content, robots_parser)
-        to_crawl.extend(new_links)
+        if content:
+            # Process new links
+            new_links = process_new_links(database_name, current_url, content, robots_parser)
+            to_crawl.extend(new_links)
 
         # Respect the crawl delay
         logging.info(f"Waiting for {crawl_delay} seconds before the next request...")
