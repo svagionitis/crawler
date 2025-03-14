@@ -26,7 +26,8 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume):
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=[logging.FileHandler(log_file_name), logging.StreamHandler()],
+        handlers=[logging.FileHandler(log_file_name, encoding="utf-8"),
+                  logging.StreamHandler()],
     )
 
     # Check if the database exists when resuming
