@@ -13,8 +13,8 @@ def get_log_file_name(domain):
     """Generate the log filename based on the domain."""
     return f"crawler_{domain}.log"
 
-def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume):
-    """Crawl the site starting from the given URL."""
+def initialize_crawler(start_url, respect_robots, crawl_delay):
+    """Initialize the crawler, including database, logging, and robots.txt parser."""
     # Parse the domain
     domain = urlparse(start_url).netloc
 
@@ -22,17 +22,15 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume):
     database_name = get_database_name(domain)
     log_file_name = get_log_file_name(domain)
 
-    # Configure logging
+    # Configure logging with UTF-8 encoding
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=[logging.FileHandler(log_file_name, encoding="utf-8"),
-                  logging.StreamHandler()],
+        handlers=[
+            logging.FileHandler(log_file_name, encoding="utf-8"),
+            logging.StreamHandler(),
+        ],
     )
-
-    # Check if the database exists when resuming
-    if resume and not os.path.exists(database_name):
-        logging.warning(f"Database not found: {database_name}. Creating a new database and starting fresh.")
 
     # Initialize the database
     init_db(database_name)
@@ -53,7 +51,10 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume):
         except Exception as e:
             logging.warning(f"Failed to read robots.txt: {e}")
 
-    # Load pending links if resuming
+    return database_name, robots_parser, crawl_delay
+
+def prepare_crawl_queue(database_name, start_url, robots_parser, resume):
+    """Prepare the queue of links to crawl, either from the database or the starting URL."""
     to_crawl = []
     # If we want to resume and the database is not empty, load pending links,
     # else start with the initial URL
@@ -63,7 +64,49 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume):
     else:
         # Start with the initial URL
         to_crawl = [start_url]
-        save_link_to_db(database_name, domain, start_url, robots_parser)
+        save_link_to_db(database_name, urlparse(start_url).netloc, start_url, robots_parser)
+
+    return to_crawl
+
+def crawl_page(database_name, current_url, robots_parser, no_duplicates, visited_hashes):
+    """Crawl a single page, fetch content, check for duplicates, and save data."""
+    # Check robots.txt
+    if robots_parser and not robots_parser.can_fetch(USER_AGENT, current_url):
+        logging.info(f"Skipping {current_url} due to robots.txt")
+        return None
+
+    # Fetch the page
+    logging.info(f"Crawling: {current_url}")
+    content = fetch_page(current_url)
+    if not content:
+        return None
+
+    # Compute hash and check for duplicates
+    content_hash = compute_hash(content)
+    if no_duplicates and content_hash in visited_hashes:
+        logging.info(f"Skipping duplicate content: {current_url}")
+        return None
+
+    # Save content and mark as crawled
+    update_link_in_db(database_name, current_url, content, content_hash)
+    visited_hashes.add(content_hash)
+
+    return content
+
+def process_new_links(database_name, current_url, content, robots_parser):
+    """Process new links extracted from a page and add them to the crawl queue."""
+    new_links = extract_links(current_url, content, robots_parser)
+    for link in new_links:
+        save_link_to_db(database_name, urlparse(current_url).netloc, link, robots_parser)
+    return new_links
+
+def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume):
+    """Crawl the site starting from the given URL."""
+    # Initialize the crawler
+    database_name, robots_parser, crawl_delay = initialize_crawler(start_url, respect_robots, crawl_delay)
+
+    # Prepare the crawl queue
+    to_crawl = prepare_crawl_queue(database_name, start_url, robots_parser, resume)
 
     # Initialize visited hashes for duplicate detection
     visited_hashes = set()
@@ -71,33 +114,13 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume):
     while to_crawl:
         current_url = to_crawl.pop(0)
 
-        # Check robots.txt
-        if respect_robots and not robots_parser.can_fetch(USER_AGENT, current_url):
-            logging.info(f"Skipping {current_url} due to robots.txt")
-            continue
-
-        # Fetch the page
-        logging.info(f"Crawling: {current_url}")
-        content = fetch_page(current_url)
+        # Crawl the page
+        content = crawl_page(database_name, current_url, robots_parser, no_duplicates, visited_hashes)
         if not content:
             continue
 
-        # Compute hash and check for duplicates
-        content_hash = compute_hash(content)
-        if no_duplicates and content_hash in visited_hashes:
-            logging.info(f"Skipping duplicate content: {current_url}")
-            continue
-
-        # Save content and mark as crawled
-        update_link_in_db(database_name, current_url, content, content_hash)
-        visited_hashes.add(content_hash)
-
-        # Extract and save new links
-        new_links = extract_links(current_url, content, robots_parser)
-        for link in new_links:
-            save_link_to_db(database_name, domain, link, robots_parser)
-
-        # Add new links to the queue
+        # Process new links
+        new_links = process_new_links(database_name, current_url, content, robots_parser)
         to_crawl.extend(new_links)
 
         # Respect the crawl delay
