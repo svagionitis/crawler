@@ -5,7 +5,8 @@ import time
 import os
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
-from database import init_db, save_link_to_db, update_link_in_db, load_pending_links, get_database_name, is_database_empty
+from database import init_db, save_link_to_db, update_link_in_db, \
+    load_pending_links, get_database_name, is_database_empty, check_re_crawl
 from utils import fetch_page, extract_links, compute_hash
 from config import USER_AGENT
 
@@ -68,11 +69,17 @@ def prepare_crawl_queue(database_name, start_url, robots_parser, resume):
 
     return to_crawl
 
-def crawl_page(database_name, current_url, robots_parser, no_duplicates, visited_hashes):
+def crawl_page(database_name, current_url, robots_parser, no_duplicates, visited_hashes, re_crawl_time):
     """Crawl a single page, fetch content, check for duplicates, and save data."""
     # Check robots.txt
     if robots_parser and not robots_parser.can_fetch(USER_AGENT, current_url):
         logging.info(f"Skipping {current_url} due to robots.txt")
+        return None
+
+    # Check if the link should be re-crawled
+    if not check_re_crawl(database_name, current_url, re_crawl_time):
+        logging.info(f"Link {current_url} was crawled recently. Updating date_inserted and setting status to pending.")
+        save_link_to_db(database_name, urlparse(current_url).netloc, current_url, robots_parser, status="pending")
         return None
 
     # Fetch the page
@@ -100,7 +107,7 @@ def process_new_links(database_name, current_url, content, robots_parser):
         save_link_to_db(database_name, urlparse(current_url).netloc, link, robots_parser)
     return new_links
 
-def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume):
+def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume, re_crawl_time):
     """Crawl the site starting from the given URL."""
     # Initialize the crawler
     database_name, robots_parser, crawl_delay = initialize_crawler(start_url, respect_robots, crawl_delay)
@@ -115,7 +122,7 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume):
         current_url = to_crawl.pop(0)
 
         # Crawl the page
-        content = crawl_page(database_name, current_url, robots_parser, no_duplicates, visited_hashes)
+        content = crawl_page(database_name, current_url, robots_parser, no_duplicates, visited_hashes, re_crawl_time)
         if content:
             # Process new links
             new_links = process_new_links(database_name, current_url, content, robots_parser)
@@ -150,10 +157,16 @@ def main():
         action="store_true",
         help="Resume crawling from an existing database.",
     )
+    parser.add_argument(
+        "--re-crawl-time",
+        type=int,
+        default=3,
+        help="Time in hours after which a link should be re-crawled (default: 3).",
+    )
     args = parser.parse_args()
 
     # Start crawling
-    crawl_site(args.url, args.respect_robots, args.no_duplicates, args.crawl_delay, args.resume)
+    crawl_site(args.url, args.respect_robots, args.no_duplicates, args.crawl_delay, args.resume, args.re_crawl_time)
 
 if __name__ == "__main__":
     main()

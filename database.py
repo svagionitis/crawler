@@ -113,3 +113,29 @@ def is_database_empty(database_name):
     except sqlite3.Error as e:
         logging.error(f"Failed to check if database is empty: {e}")
         return True  # Assume empty if there's an error
+
+def check_re_crawl(database_name, link, re_crawl_time):
+    """
+    Check if a link should be re-crawled based on the re-crawl time.
+    Returns True if the link should be re-crawled, False otherwise.
+    """
+    try:
+        with sqlite3.connect(database_name) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT date_crawled FROM crawled_data WHERE link = ?
+                """,
+                (link,),
+            )
+            date_crawled = cursor.fetchone()
+
+            if date_crawled and date_crawled[0]:
+                last_crawled_time = datetime.fromisoformat(date_crawled[0])
+                time_since_last_crawl = datetime.now() - last_crawled_time
+                if time_since_last_crawl.total_seconds() <= re_crawl_time * 3600:  # Convert hours to seconds
+                    return False  # Do not re-crawl
+            return True  # Re-crawl
+    except sqlite3.Error as e:
+        logging.error(f"Failed to check re-crawl status for link {link}: {e}")
+        return True  # Assume re-crawl if there's an error
