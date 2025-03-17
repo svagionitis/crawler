@@ -9,10 +9,14 @@ from database import init_db, save_link_to_db, update_link_in_db, \
     load_pending_links, get_database_name, is_database_empty, check_re_crawl
 from utils import fetch_page, extract_links, compute_hash
 from config import USER_AGENT
+from datetime import datetime
 
 def get_log_file_name(domain):
-    """Generate the log filename based on the domain."""
-    return f"crawler_{domain}.log"
+    """Generate the log filename based on the domain and current datetime."""
+    # Get the current datetime in a formatted string (e.g., 20231015143022)
+    current_datetime = datetime.now().strftime("%Y%m%d%H%M%S")
+    # Include the domain and datetime in the log filename
+    return f"crawler_{domain}_{current_datetime}.log"
 
 def initialize_crawler(start_url, respect_robots, crawl_delay):
     """Initialize the crawler, including database, logging, and robots.txt parser."""
