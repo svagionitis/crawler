@@ -72,18 +72,18 @@ def save_link_to_db(database_name, domain, link, robots_parser, status="pending"
     except sqlite3.Error as e:
         logging.error(f"Database error while saving link: {e}")
 
-def update_link_in_db(database_name, link, content, content_hash):
-    """Update a link in the database with content, hash, and date_crawled, and mark it as crawled."""
+def update_link_in_db(database_name, link, content, content_hash, status="crawled"):
+    """Update a link in the database with content, hash, and date_crawled, and mark it with the given status."""
     try:
         with sqlite3.connect(database_name) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
                 UPDATE crawled_data
-                SET content = ?, content_hash = ?, status = 'crawled', date_crawled = ?
+                SET content = ?, content_hash = ?, status = ?, date_crawled = ?
                 WHERE link = ?
                 """,
-                (content, content_hash, datetime.now(), link),
+                (content, content_hash, status, datetime.now(), link),
             )
             conn.commit()
             logging.info(f"Updated link in database: {link}")

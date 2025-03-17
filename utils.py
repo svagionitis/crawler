@@ -11,10 +11,11 @@ def fetch_page(url):
     try:
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
-        return response.text
+        return response.text, None  # Return content and no error
     except requests.exceptions.RequestException as e:
-        logging.error(f"Failed to fetch {url}: {e}")
-        return None
+        error_description = str(e)
+        logging.error(f"Failed to fetch {url}: {error_description}")
+        return None, error_description  # Return no content and error description
 
 def extract_links(base_url, html_content, robots_parser):
     """Extract all links from the HTML content that belong to the same domain and are allowed by robots.txt."""

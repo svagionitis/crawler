@@ -88,8 +88,12 @@ def crawl_page(database_name, current_url, robots_parser, no_duplicates, visited
 
     # Fetch the page
     logging.info(f"Crawling: {current_url}")
-    content = fetch_page(current_url)
-    if not content:
+    content, error_description = fetch_page(current_url)
+    if error_description:
+        # Handle failure
+        error_description_hash = compute_hash(error_description)
+        update_link_in_db(database_name, current_url, error_description, error_description_hash, status="pending")
+        logging.info(f"Failed to crawl {current_url}: {error_description}")
         return None
 
     # Compute hash and check for duplicates
@@ -99,7 +103,7 @@ def crawl_page(database_name, current_url, robots_parser, no_duplicates, visited
         return None
 
     # Save content and mark as crawled
-    update_link_in_db(database_name, current_url, content, content_hash)
+    update_link_in_db(database_name, current_url, content, content_hash, status="crawled")
     visited_hashes.add(content_hash)
 
     return content
