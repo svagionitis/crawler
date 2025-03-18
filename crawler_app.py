@@ -7,25 +7,29 @@ from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 from database import init_db, save_link_to_db, update_link_in_db, \
     load_pending_links, get_database_name, is_database_empty, check_re_crawl
-from utils import fetch_page, extract_links, compute_hash
+from utils import fetch_page, extract_links, compute_hash, ensure_directory_exists
 from config import USER_AGENT
 from datetime import datetime
 
-def get_log_file_name(domain):
-    """Generate the log filename based on the domain and current datetime."""
+def get_log_file_name(domain, logs_dir):
+    """Generate the log filename based on the domain and current datetime, and save it in the specified logs directory."""
+    # Ensure the logs directory exists
+    ensure_directory_exists(logs_dir)
+
     # Get the current datetime in a formatted string (e.g., 20231015143022)
     current_datetime = datetime.now().strftime("%Y%m%d%H%M%S")
-    # Include the domain and datetime in the log filename
-    return f"crawler_{domain}_{current_datetime}.log"
 
-def initialize_crawler(start_url, respect_robots, crawl_delay):
+    # Include the domain and datetime in the log filename
+    return os.path.join(logs_dir, f"crawler_{domain}_{current_datetime}.log")
+
+def initialize_crawler(start_url, respect_robots, crawl_delay, logs_dir, db_dir):
     """Initialize the crawler, including database, logging, and robots.txt parser."""
     # Parse the domain
     domain = urlparse(start_url).netloc
 
     # Generate the database and log file names
-    database_name = get_database_name(domain)
-    log_file_name = get_log_file_name(domain)
+    database_name = get_database_name(domain, db_dir)
+    log_file_name = get_log_file_name(domain, logs_dir)
 
     # Configure logging with UTF-8 encoding
     logging.basicConfig(
@@ -115,10 +119,10 @@ def process_new_links(database_name, current_url, content, robots_parser):
         save_link_to_db(database_name, urlparse(current_url).netloc, link, robots_parser)
     return new_links
 
-def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume, re_crawl_time):
+def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume, re_crawl_time, logs_dir, db_dir):
     """Crawl the site starting from the given URL."""
     # Initialize the crawler
-    database_name, robots_parser, crawl_delay = initialize_crawler(start_url, respect_robots, crawl_delay)
+    database_name, robots_parser, crawl_delay = initialize_crawler(start_url, respect_robots, crawl_delay, logs_dir, db_dir)
 
     # Prepare the crawl queue
     to_crawl = prepare_crawl_queue(database_name, start_url, robots_parser, resume)
@@ -171,10 +175,23 @@ def main():
         default=3,
         help="Time in hours after which a link should be re-crawled (default: 3).",
     )
+    parser.add_argument(
+        "--logs-dir",
+        type=str,
+        default="logs",
+        help="Directory to save log files (default: logs).",
+    )
+    parser.add_argument(
+        "--db-dir",
+        type=str,
+        default="db",
+        help="Directory to save database files (default: db).",
+    )
     args = parser.parse_args()
 
     # Start crawling
-    crawl_site(args.url, args.respect_robots, args.no_duplicates, args.crawl_delay, args.resume, args.re_crawl_time)
+    crawl_site(args.url, args.respect_robots, args.no_duplicates, args.crawl_delay,
+               args.resume, args.re_crawl_time, args.logs_dir, args.db_dir)
 
 if __name__ == "__main__":
     main()

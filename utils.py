@@ -4,6 +4,7 @@ from urllib.parse import urljoin, urlparse
 import hashlib
 import logging
 from config import USER_AGENT
+import os
 
 def fetch_page(url):
     """Fetch the content of a web page."""
@@ -33,3 +34,9 @@ def extract_links(base_url, html_content, robots_parser):
 def compute_hash(content):
     """Compute the SHA-256 hash of the content."""
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+def ensure_directory_exists(directory):
+    """Ensure a directory exists. If not, create it."""
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+        logging.info(f"Created directory: {directory}")

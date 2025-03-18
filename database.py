@@ -2,10 +2,18 @@ import sqlite3
 from datetime import datetime
 import logging
 from config import USER_AGENT
+from utils import ensure_directory_exists
+import os
 
-def get_database_name(domain):
-    """Generate the database filename based on the domain."""
-    return f"crawled_data_{domain}.db"
+
+def get_database_name(domain, db_dir):
+    """Generate the database filename based on the domain and save it in the specified db directory."""
+
+    # Ensure the db directory exists
+    ensure_directory_exists(db_dir)
+
+    # Generate the database filename
+    return os.path.join(db_dir, f"crawled_data_{domain}.db")
 
 def init_db(database_name):
     """Initialize the SQLite database and create the table if it doesn't exist."""
