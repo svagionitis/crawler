@@ -5,6 +5,7 @@ import hashlib
 import logging
 from config import USER_AGENT
 import os
+import base64
 
 def fetch_page(url):
     """Fetch the content of a web page."""
@@ -12,7 +13,17 @@ def fetch_page(url):
     try:
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
-        return response.text, None  # Return content and no error
+
+        # Check the Content-Type header
+        content_type = response.headers.get("Content-Type", "").lower()
+
+        if "text/html" in content_type:
+            # Return HTML content as text
+            return response.text, None
+        else:
+             # Return binary content as Base64-encoded string
+            return base64.b64encode(response.content).decode("utf-8"), None
+
     except requests.exceptions.RequestException as e:
         error_description = str(e)
         logging.error(f"Failed to fetch {url}: {error_description}")
