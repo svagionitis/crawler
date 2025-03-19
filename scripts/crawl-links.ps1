@@ -10,3 +10,4 @@ Start-Process PowerShell -ArgumentList '-NoExit -Command "python.exe .\crawler_a
 Start-Process PowerShell -ArgumentList '-NoExit -Command "python.exe .\crawler_app.py --url https://www.documentonews.gr --respect-robots --crawl-delay 15 --resume"'
 Start-Process PowerShell -ArgumentList '-NoExit -Command "python.exe .\crawler_app.py --url https://www.real.gr --respect-robots --crawl-delay 15 --resume"'
 Start-Process PowerShell -ArgumentList '-NoExit -Command "python.exe .\crawler_app.py --url https://www.rizospastis.gr --respect-robots --crawl-delay 15 --resume"'
+Start-Process PowerShell -ArgumentList '-NoExit -Command "python.exe .\crawler_app.py --url https://www.zougla.gr --respect-robots --crawl-delay 15 --resume"'
