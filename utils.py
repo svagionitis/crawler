@@ -11,7 +11,7 @@ def fetch_page(url):
     """Fetch the content of a web page."""
     headers = {"User-Agent": USER_AGENT}
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, timeout=60)
         response.raise_for_status()
 
         # Check the Content-Type header
