@@ -82,13 +82,13 @@ def crawl_page(database_name, current_url, robots_parser, no_duplicates, visited
     # Check robots.txt
     if robots_parser and not robots_parser.can_fetch(USER_AGENT, current_url):
         logging.info(f"Skipping {current_url} due to robots.txt")
-        return None
+        return ""
 
     # Check if the link should be re-crawled
     if not check_re_crawl(database_name, current_url, re_crawl_time):
         logging.info(f"Link {current_url} was crawled recently. Updating date_inserted and setting status to pending.")
         save_link_to_db(database_name, urlparse(current_url).netloc, current_url, robots_parser, status="pending")
-        return None
+        return ""
 
     # Fetch the page
     logging.info(f"Crawling: {current_url}")
@@ -139,6 +139,10 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume, re
             # Process new links
             new_links = process_new_links(database_name, current_url, content, robots_parser)
             to_crawl.extend(new_links)
+        elif not content:
+            # If the page was not crawled successfully, because of the robot rules or the re-crawl time, then get the next link to crawl
+            # without waiting for the crawl delay
+            continue
 
         # Respect the crawl delay
         logging.info(f"Waiting for {crawl_delay} seconds before the next request...")
