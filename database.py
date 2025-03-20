@@ -35,6 +35,10 @@ def init_db(database_name):
         )
         # Create an index on the link column
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_link ON crawled_data (link)")
+        # Create an index on the status column
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_status ON crawled_data (status)")
+        # Create an index on the link, status columns
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_link_status ON crawled_data (link, status)")
         conn.commit()
 
 def save_link_to_db(database_name, domain, link, robots_parser, status="pending"):
