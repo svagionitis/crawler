@@ -1,4 +1,5 @@
 import requests
+import time
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import hashlib
@@ -7,27 +8,55 @@ from config import USER_AGENT
 import os
 import base64
 
-def fetch_page(url):
-    """Fetch the content of a web page."""
+def fetch_page(url, max_retries=3, initial_timeout=60):
+    """
+    Fetch the content of a web page with retries and exponential backoff.
+
+    Args:
+        url (str): The URL to fetch.
+        max_retries (int): Maximum number of retries (default: 3).
+        initial_timeout (int): Initial timeout in seconds (default: 60).
+
+    Returns:
+        tuple: (content, error_description) where content is the page content or None,
+               and error_description is an error message or None.
+    """
     headers = {"User-Agent": USER_AGENT}
-    try:
-        response = requests.get(url, headers=headers, timeout=60)
-        response.raise_for_status()
+    retry_count = 0
+    timeout = initial_timeout
 
-        # Check the Content-Type header
-        content_type = response.headers.get("Content-Type", "").lower()
+    while retry_count < max_retries:
+        try:
+            response = requests.get(url, headers=headers, timeout=timeout)
+            response.raise_for_status()
 
-        if "text/html" in content_type:
-            # Return HTML content as text
-            return response.text, None
-        else:
-             # Return binary content as Base64-encoded string
-            return base64.b64encode(response.content).decode("utf-8"), None
+            # Check the Content-Type header
+            content_type = response.headers.get("Content-Type", "").lower()
 
-    except requests.exceptions.RequestException as e:
-        error_description = str(e)
-        logging.error(f"Failed to fetch {url}: {error_description}")
-        return None, error_description  # Return no content and error description
+            if "text/html" in content_type:
+                # Return HTML content as text
+                return response.text, None
+            else:
+                # Return binary content as Base64-encoded string
+                return base64.b64encode(response.content).decode("utf-8"), None
+
+        except requests.exceptions.Timeout as e:
+            retry_count += 1
+            if retry_count < max_retries:
+                logging.warning(f"Timeout occurred for {url}. Retrying in {timeout} seconds... (Attempt {retry_count}/{max_retries})")
+                time.sleep(timeout)  # Wait before retrying
+                timeout *= 2  # Exponential backoff
+            else:
+                error_description = f"Timeout after {max_retries} retries: {e}"
+                logging.error(f"Failed to fetch {url}: {error_description}")
+                return None, error_description
+
+        except requests.exceptions.RequestException as e:
+            error_description = str(e)
+            logging.error(f"Failed to fetch {url}: {error_description}")
+            return None, error_description
+
+    return None, "Max retries reached without success"
 
 def extract_links(base_url, html_content, robots_parser):
     """Extract all links from the HTML content that belong to the same domain and are allowed by robots.txt."""
