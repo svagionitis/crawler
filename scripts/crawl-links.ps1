@@ -15,6 +15,7 @@ Start-Process PowerShell -ArgumentList '-NoExit -WindowStyle maximized -Command 
 Start-Process PowerShell -ArgumentList '-NoExit -WindowStyle maximized -Command "python.exe .\crawler_app.py --url https://www.ethnos.gr --respect-robots --crawl-delay 15 --resume --re-crawl-time 24"'
 Start-Process PowerShell -ArgumentList '-NoExit -WindowStyle maximized -Command "python.exe .\crawler_app.py --url https://www.naftemporiki.gr --respect-robots --crawl-delay 15 --resume --re-crawl-time 24"'
 Start-Process PowerShell -ArgumentList '-NoExit -WindowStyle maximized -Command "python.exe .\crawler_app.py --url https://www.espressonews.gr --respect-robots --crawl-delay 15 --resume --re-crawl-time 24"'
+Start-Process PowerShell -ArgumentList '-NoExit -WindowStyle maximized -Command "python.exe .\crawler_app.py --url https://www.dimokratia.gr --respect-robots --crawl-delay 15 --resume --re-crawl-time 24"'
 Start-Process PowerShell -ArgumentList '-NoExit -WindowStyle maximized -Command "python.exe .\crawler_app.py --url https://www.inkefalonia.gr --respect-robots --crawl-delay 15 --resume --re-crawl-time 24"'
 Start-Process PowerShell -ArgumentList '-NoExit -WindowStyle maximized -Command "python.exe .\crawler_app.py --url https://www.kefaloniapress.gr --respect-robots --crawl-delay 15 --resume --re-crawl-time 24"'
 Start-Process PowerShell -ArgumentList '-NoExit -WindowStyle maximized -Command "python.exe .\crawler_app.py --url https://www.ekathimerini.com --respect-robots --crawl-delay 15 --resume --re-crawl-time 24"'
