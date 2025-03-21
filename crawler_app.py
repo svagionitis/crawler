@@ -49,7 +49,7 @@ def initialize_crawler(start_url, respect_robots, crawl_delay, logs_dir, db_dir)
     if respect_robots:
         robots_parser = RobotFileParser()
         robots_url = urljoin(start_url, "/robots.txt")
-        robots_content = requests.get(robots_url, timeout=10)
+        robots_content = requests.get(robots_url, timeout=60)
         try:
             robots_parser.parse(robots_content.text.splitlines())
             # Use the crawl delay from robots.txt if available
