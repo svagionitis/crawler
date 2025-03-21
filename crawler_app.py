@@ -82,13 +82,13 @@ def crawl_page(database_name, current_url, robots_parser, no_duplicates, visited
     # Check robots.txt
     if robots_parser and not robots_parser.can_fetch(USER_AGENT, current_url):
         logging.info(f"Skipping {current_url} due to robots.txt")
-        return ""
+        return None, "skip"
 
     # Check if the link should be re-crawled
     if not check_re_crawl(database_name, current_url, re_crawl_time):
         logging.info(f"Link {current_url} was crawled recently. Updating date_inserted and setting status to pending.")
         save_links_to_db(database_name, urlparse(current_url).netloc, [current_url], robots_parser, status="pending")
-        return ""
+        return None, "save"
 
     # Fetch the page
     logging.info(f"Crawling: {current_url}")
@@ -98,19 +98,19 @@ def crawl_page(database_name, current_url, robots_parser, no_duplicates, visited
         error_description_hash = compute_hash(error_description)
         update_link_in_db(database_name, current_url, error_description, error_description_hash, status="pending")
         logging.info(f"Failed to crawl {current_url}: {error_description}")
-        return None
+        return None, None
 
     # Compute hash and check for duplicates
     content_hash = compute_hash(content)
     if no_duplicates and content_hash in visited_hashes:
         logging.info(f"Skipping duplicate content: {current_url}")
-        return None
+        return None, None
 
     # Save content and mark as crawled
     update_link_in_db(database_name, current_url, content, content_hash, status="crawled")
     visited_hashes.add(content_hash)
 
-    return content
+    return content, None
 
 def process_new_links(current_url, content, robots_parser):
     """Process new links extracted from a page and add them to the crawl queue."""
@@ -135,13 +135,13 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume, re
         current_url = to_crawl.pop(0)
 
         # Crawl the page
-        content = crawl_page(database_name, current_url, robots_parser, no_duplicates, visited_hashes, re_crawl_time)
-        if content:
+        content, action = crawl_page(database_name, current_url, robots_parser, no_duplicates, visited_hashes, re_crawl_time)
+        if content and action is None:
             # Process new links
             new_links = process_new_links(current_url, content, robots_parser)
             new_links_to_save.extend(new_links)
             to_crawl.extend(new_links)
-        elif not content:
+        elif content is None and action:
             # If the page was not crawled successfully, because of the robot rules or the re-crawl time, then get the next link to crawl
             # without waiting for the crawl delay
             continue
