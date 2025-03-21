@@ -41,48 +41,49 @@ def init_db(database_name):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_link_status ON crawled_data (link, status)")
         conn.commit()
 
-def save_link_to_db(database_name, domain, link, robots_parser, status="pending"):
-    """Save a link to the database with a given status, if allowed by robots.txt."""
-    if robots_parser and not robots_parser.can_fetch(USER_AGENT, link):
-        logging.info(f"Skipping disallowed link: {link}")
-        return
-
+def save_links_to_db(database_name, domain, links, robots_parser, status="pending"):
+    """Save multiple links to the database in a batch, if allowed by robots.txt."""
     try:
         with sqlite3.connect(database_name) as conn:
             cursor = conn.cursor()
-            # Check if the link already exists and is pending
-            cursor.execute(
-                """
-                SELECT id FROM crawled_data WHERE link = ? AND status = 'pending'
-                """,
-                (link,),
-            )
-            existing_link = cursor.fetchone()
+            for link in links:
+                if robots_parser and not robots_parser.can_fetch(USER_AGENT, link):
+                    logging.info(f"Skipping disallowed link: {link}")
+                    continue
 
-            if existing_link:
-                # Update the date_inserted for the existing pending link
+                # Check if the link already exists and is pending
                 cursor.execute(
                     """
-                    UPDATE crawled_data
-                    SET date_inserted = ?
-                    WHERE id = ?
+                    SELECT id FROM crawled_data WHERE link = ? AND status = 'pending'
                     """,
-                    (datetime.now(), existing_link[0]),
+                    (link,),
                 )
-                logging.info(f"Updated date_inserted for pending link: {link}")
-            else:
-                # Insert the new link
-                cursor.execute(
-                    """
-                    INSERT OR IGNORE INTO crawled_data (domain, date_inserted, link, status)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (domain, datetime.now(), link, status),
-                )
-                logging.info(f"Saved link to database: {link} (status: {status})")
-            conn.commit()
+                existing_link = cursor.fetchone()
+
+                if existing_link:
+                    # Update the date_inserted for the existing pending link
+                    cursor.execute(
+                        """
+                        UPDATE crawled_data
+                        SET date_inserted = ?
+                        WHERE id = ?
+                        """,
+                        (datetime.now(), existing_link[0]),
+                    )
+                    logging.info(f"Updated date_inserted for pending link: {link}")
+                else:
+                    # Insert the new link
+                    cursor.execute(
+                        """
+                        INSERT OR IGNORE INTO crawled_data (domain, date_inserted, link, status)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (domain, datetime.now(), link, status),
+                    )
+                    logging.info(f"Saved link to database: {link} (status: {status})")
+            conn.commit()  # Commit all changes at once
     except sqlite3.Error as e:
-        logging.error(f"Database error while saving link: {e}")
+        logging.error(f"Database error while saving links: {e}")
 
 def update_link_in_db(database_name, link, content, content_hash, status="crawled"):
     """Update a link in the database with content, hash, and date_crawled, and mark it with the given status."""
