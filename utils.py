@@ -33,8 +33,8 @@ def fetch_page(url, max_retries=3, initial_timeout=60):
             # Check the Content-Type header
             content_type = response.headers.get("Content-Type", "").lower()
 
-            if "text/html" in content_type:
-                # Return HTML content as text
+            if "text/" in content_type:
+                 # Return text content as plain text
                 return response.text, None
             else:
                 # Return binary content as Base64-encoded string
