@@ -54,7 +54,7 @@ def initialize_crawler(start_url, respect_robots, crawl_delay, logs_dir, db_dir)
             logging.warning(f"Failed to fetch robots.txt: {robots_error_description}")
             return database_name, None, crawl_delay
         try:
-            robots_parser.parse(robots_content.text.splitlines())
+            robots_parser.parse(robots_content.splitlines())
             # Use the crawl delay from robots.txt if available
             robots_crawl_delay = robots_parser.crawl_delay(USER_AGENT)
             if robots_crawl_delay is not None and robots_crawl_delay > crawl_delay:
