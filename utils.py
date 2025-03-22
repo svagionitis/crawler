@@ -40,6 +40,22 @@ def fetch_page(url, max_retries=3, initial_timeout=60):
                 # Return binary content as Base64-encoded string
                 return base64.b64encode(response.content).decode("utf-8"), None
 
+        except requests.exceptions.HTTPError as e:
+            if response.status_code == 504:  # Handle 504 Gateway Timeout
+                retry_count += 1
+                if retry_count < max_retries:
+                    logging.warning(f"504 Gateway Timeout for {url}. Retrying in {timeout} seconds... (Attempt {retry_count}/{max_retries})")
+                    time.sleep(timeout)  # Wait before retrying
+                    timeout *= 2  # Exponential backoff
+                else:
+                    error_description = f"504 Gateway Timeout after {max_retries} retries: {e}"
+                    logging.error(f"Failed to fetch {url}: {error_description}")
+                    return None, error_description
+            else:
+                error_description = f"HTTP Error {response.status_code}: {e}"
+                logging.error(f"Failed to fetch {url}: {error_description}")
+                return None, error_description
+
         except requests.exceptions.Timeout as e:
             retry_count += 1
             if retry_count < max_retries:
