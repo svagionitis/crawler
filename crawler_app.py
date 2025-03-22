@@ -49,7 +49,10 @@ def initialize_crawler(start_url, respect_robots, crawl_delay, logs_dir, db_dir)
     if respect_robots:
         robots_parser = RobotFileParser()
         robots_url = urljoin(start_url, "/robots.txt")
-        robots_content = requests.get(robots_url, timeout=60)
+        robots_content, robots_error_description = fetch_page(robots_url)
+        if robots_error_description:
+            logging.warning(f"Failed to fetch robots.txt: {robots_error_description}")
+            return database_name, None, crawl_delay
         try:
             robots_parser.parse(robots_content.text.splitlines())
             # Use the crawl delay from robots.txt if available
