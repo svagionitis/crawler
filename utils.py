@@ -79,15 +79,12 @@ def extract_links(base_url, html_content, robots_parser):
     soup = BeautifulSoup(html_content, "html.parser")
     links = set()
     for a_tag in soup.find_all("a", href=True):
-        # The href attribute may contain relative URLs, so we need to join them with the base URL
-        # or check if they start with the base URL
-        if a_tag["href"].startswith('/') or a_tag["href"].startswith(base_url):
-            link = urljoin(base_url, a_tag["href"])
-            if urlparse(link).netloc == urlparse(base_url).netloc:
-                if not robots_parser or robots_parser.can_fetch(USER_AGENT, link):
-                    links.add(link)
-                else:
-                    logging.info(f"Skipping disallowed link: {link}")
+        link = urljoin(base_url, a_tag["href"])
+        if urlparse(link).netloc == urlparse(base_url).netloc:
+            if not robots_parser or robots_parser.can_fetch(USER_AGENT, link):
+                links.add(link)
+            else:
+                logging.info(f"Skipping disallowed link: {link}")
     return links
 
 def compute_hash(content):
