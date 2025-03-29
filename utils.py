@@ -7,6 +7,7 @@ import logging
 from config import USER_AGENT
 import os
 import base64
+import certifi
 
 def fetch_page(url, max_retries=3, initial_timeout=60):
     """
@@ -27,7 +28,7 @@ def fetch_page(url, max_retries=3, initial_timeout=60):
 
     while retry_count < max_retries:
         try:
-            response = requests.get(url, headers=headers, timeout=timeout)
+            response = requests.get(url, headers=headers, timeout=timeout, verify=certifi.where())
             response.raise_for_status()
 
             # Check the Content-Type header
