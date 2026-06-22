@@ -6,3 +6,10 @@ beautifulsoup4==4.13.3
 
 # CA bundle — used by requests for SSL certificate verification
 certifi==2025.1.31
+
+# Article text extractor & boilerplate remover
+trafilatura>=1.8.0
+
+# Advanced news article scraper & parser (extracts title, text, authors, date, keywords)
+newspaper3k>=0.2.8
+

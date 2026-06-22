@@ -7,7 +7,7 @@ from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 from database import init_db, save_links_to_db, update_link_in_db, \
     load_pending_links, get_database_name, is_database_empty, check_re_crawl
-from utils import fetch_page, extract_links, compute_hash, ensure_directory_exists
+from utils import fetch_page, extract_links, compute_hash, ensure_directory_exists, extract_article_content
 from config import USER_AGENT
 from datetime import datetime
 import threading
@@ -87,7 +87,7 @@ def prepare_crawl_queue(database_name, start_url, robots_parser, resume):
         save_links_to_db(database_name, urlparse(start_url).netloc, [start_url], robots_parser)
 
 def crawl_page(database_name, current_url, robots_parser, no_duplicates,
-               visited_hashes, visited_hashes_lock, re_crawl_time):
+               visited_hashes, visited_hashes_lock, re_crawl_time, parser_engine="auto"):
     """Crawl a single page, fetch content, check for duplicates, and save data.
 
     Args:
@@ -128,7 +128,20 @@ def crawl_page(database_name, current_url, robots_parser, no_duplicates,
             visited_hashes.add(content_hash)
 
     # Save content and mark as crawled
-    update_link_in_db(database_name, current_url, content, content_hash, status="crawled")
+    is_html = ("<html" in content.lower() or "<body" in content.lower() or "<p" in content.lower() or "<div" in content.lower())
+    if is_html:
+        extracted = extract_article_content(content, url=current_url, engine=parser_engine)
+    else:
+        extracted = {"title": None, "text": None, "authors": None, "date": None, "keywords": None}
+
+    update_link_in_db(
+        database_name, current_url, content, content_hash, status="crawled",
+        extracted_title=extracted["title"],
+        extracted_text=extracted["text"],
+        extracted_authors=extracted["authors"],
+        extracted_date=extracted["date"],
+        extracted_keywords=extracted["keywords"]
+    )
 
     return content, None
 
@@ -139,7 +152,7 @@ def process_new_links(current_url, content, robots_parser):
 
 def crawl_worker(database_name, current_url, robots_parser, no_duplicates,
                   visited_hashes, visited_hashes_lock, re_crawl_time,
-                  domain, crawl_delay):
+                  domain, crawl_delay, parser_engine="auto"):
     """Fetch a single URL, save content, and enqueue discovered links.
 
     Designed to be submitted to a ThreadPoolExecutor. Each worker sleeps
@@ -152,6 +165,7 @@ def crawl_worker(database_name, current_url, robots_parser, no_duplicates,
     content, action = crawl_page(
         database_name, current_url, robots_parser,
         no_duplicates, visited_hashes, visited_hashes_lock, re_crawl_time,
+        parser_engine=parser_engine
     )
     if content and action is None:
         new_links = process_new_links(current_url, content, robots_parser)
@@ -167,7 +181,7 @@ def crawl_worker(database_name, current_url, robots_parser, no_duplicates,
     return current_url
 
 def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume,
-               re_crawl_time, logs_dir, db_dir, batch_size, workers):
+               re_crawl_time, logs_dir, db_dir, batch_size, workers, parser_engine="auto"):
     """Crawl the site starting from the given URL."""
     # Initialize the crawler
     database_name, robots_parser, crawl_delay, robots_delay_applied = initialize_crawler(
@@ -224,6 +238,7 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume,
                     re_crawl_time=re_crawl_time,
                     domain=domain,
                     crawl_delay=crawl_delay,
+                    parser_engine=parser_engine,
                 ): url
                 for url in batch
             }
@@ -294,12 +309,24 @@ def main():
             "Forced to 1 when robots.txt specifies a Crawl-delay."
         ),
     )
+    parser.add_argument(
+        "--parser",
+        type=str,
+        default="auto",
+        choices=["auto", "newspaper", "trafilatura", "bs4"],
+        help=(
+            "The content parsing engine to extract structured text & metadata. "
+            "Options: 'auto' (tries newspaper, then trafilatura, then falls back to bs4), "
+            "'newspaper' (uses newspaper3k), 'trafilatura' (uses trafilatura), "
+            "'bs4' (uses BeautifulSoup fallback)."
+        ),
+    )
     args = parser.parse_args()
 
     # Start crawling
     crawl_site(args.url, args.respect_robots, args.no_duplicates, args.crawl_delay,
                args.resume, args.re_crawl_time, args.logs_dir, args.db_dir,
-               args.batch_size, args.workers)
+               args.batch_size, args.workers, args.parser)
 
 if __name__ == "__main__":
     main()

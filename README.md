@@ -109,6 +109,7 @@ python crawler_app.py --url <URL> [OPTIONS]
 | `--db-dir` | `str` | `db` | Directory for SQLite databases (created if absent). |
 | `--batch-size` | `int` | `100` | Pending URLs fetched from the DB per batch. Tune down for low-memory hosts, up for resume runs on large DBs. |
 | `--workers` | `int` | `1` | Number of parallel worker threads. The crawl delay is automatically scaled by this factor to maintain the aggregate request rate to the server, and forced to 1 if a `robots.txt` crawl delay is applied. |
+| `--parser` | `str` | `auto` | Parsing engine for content & text extraction (`auto`, `newspaper`, `trafilatura`, `bs4`). |
 
 ### Multi-threading & Rate Limiting
 
@@ -116,7 +117,21 @@ To increase throughput without overloading target servers, the crawler supports 
 - **Auto-scaled Delay**: If you specify `--workers N` and a `--crawl-delay D`, the crawler automatically scales the delay for each individual worker to `D * N` seconds. This ensures that the overall request frequency hitting the server remains 1 request every `D` seconds on average.
 - **robots.txt Safety**: If a site's `robots.txt` specifies a `Crawl-delay` and you run with `--respect-robots`, the crawler forces `--workers` to `1`. This is done to strictly honor the site's crawling policies and prevent parallel request bursts.
 
-### Examples
+### Content Parsing & Text Extraction
+
+For downstream text similarity, plagiarism checking, or general news analysis, the crawler extracts structured data from crawled HTML files:
+- **Extracted Fields**:
+  - `extracted_title`: The article headline.
+  - `extracted_text`: Clean body text with boilerplate (headers, footer, ads, navigation menus) removed.
+  - `extracted_authors`: Comma-separated list of article authors.
+  - `extracted_date`: Publication date in ISO format or raw string.
+  - `extracted_keywords`: Comma-separated list of keywords.
+- **Parser Engines**:
+  - `newspaper`: Uses the `newspaper3k` package (best for full news metadata, authorship, and NLP keywords).
+  - `trafilatura`: Uses the `trafilatura` library (highly accurate text extraction and boilerplate cleaning).
+  - `bs4`: Standard BeautifulSoup cleaning fallback (removes `<script>`, `<style>`, `<nav>`, `<footer>`, etc., and retrieves `<p>` blocks).
+  - `auto` (Default): Attempts to use `newspaper` first, falls back to `trafilatura` if unavailable, and uses `bs4` if neither is installed.
+
 
 **Basic crawl (no robots.txt, 30 s delay):**
 ```bash

@@ -9,6 +9,20 @@ import os
 import base64
 import certifi
 
+# Optional imports for advanced article text extraction
+try:
+    import trafilatura
+    from trafilatura.metadata import extract_metadata as trafilatura_extract_metadata
+    HAS_TRAFILATURA = True
+except ImportError:
+    HAS_TRAFILATURA = False
+
+try:
+    import newspaper
+    HAS_NEWSPAPER = True
+except ImportError:
+    HAS_NEWSPAPER = False
+
 def fetch_page(url, max_retries=3, initial_timeout=60):
     """
     Fetch the content of a web page with retries and exponential backoff.
@@ -101,3 +115,182 @@ def ensure_directory_exists(directory):
     if not os.path.exists(directory):
         os.makedirs(directory)
         logging.info(f"Created directory: {directory}")
+
+def extract_with_newspaper(html_content, url):
+    """Extract news article fields using newspaper3k."""
+    from newspaper import Article
+    article_url = url if url else "https://example.com"
+    article = Article(article_url)
+    article.set_html(html_content)
+    article.parse()
+
+    title = article.title
+    text = article.text
+    authors = ", ".join(article.authors) if article.authors else None
+
+    date_str = None
+    if article.publish_date:
+        if hasattr(article.publish_date, "isoformat"):
+            date_str = article.publish_date.isoformat()
+        else:
+            date_str = str(article.publish_date)
+
+    keywords_str = None
+    try:
+        article.nlp()
+        if article.keywords:
+            keywords_str = ", ".join(article.keywords)
+    except Exception:
+        # Fallback to parsing meta keywords if punkt dataset is missing
+        pass
+
+    return title, text, authors, date_str, keywords_str
+
+def extract_with_trafilatura(html_content):
+    """Extract news article fields using trafilatura."""
+    text = trafilatura.extract(html_content, include_comments=False, no_fallback=False)
+
+    metadata = None
+    try:
+        metadata = trafilatura_extract_metadata(html_content)
+    except Exception:
+        pass
+
+    title = None
+    authors = None
+    date_str = None
+    keywords_str = None
+
+    if metadata:
+        title = metadata.title
+        authors = metadata.author
+        date_str = metadata.date
+        kws = []
+        if metadata.categories:
+            kws.extend(metadata.categories)
+        if metadata.tags:
+            kws.extend(metadata.tags)
+        if kws:
+            keywords_str = ", ".join(list(set(kws)))
+
+    return title, text, authors, date_str, keywords_str
+
+def extract_with_bs4(html_content):
+    """Extract news article fields using standard BeautifulSoup (boilerplate removal fallback)."""
+    soup = BeautifulSoup(html_content, "html.parser")
+
+    title = None
+    if soup.title and soup.title.string:
+        title = soup.title.string.strip()
+    if not title:
+        h1 = soup.find("h1")
+        if h1:
+            title = h1.get_text(strip=True)
+
+    authors = None
+    author_meta = (
+        soup.find("meta", attrs={"name": "author"}) or
+        soup.find("meta", attrs={"property": "article:author"}) or
+        soup.find("meta", attrs={"name": "twitter:creator"})
+    )
+    if author_meta and author_meta.get("content"):
+        authors = author_meta["content"].strip()
+
+    date_str = None
+    date_meta = (
+        soup.find("meta", attrs={"property": "article:published_time"}) or
+        soup.find("meta", attrs={"name": "pubdate"}) or
+        soup.find("meta", attrs={"name": "publish-date"}) or
+        soup.find("meta", attrs={"property": "og:article:published_time"})
+    )
+    if date_meta and date_meta.get("content"):
+        date_str = date_meta["content"].strip()
+
+    keywords_str = None
+    keywords_meta = (
+        soup.find("meta", attrs={"name": "keywords"}) or
+        soup.find("meta", attrs={"name": "news_keywords"})
+    )
+    if keywords_meta and keywords_meta.get("content"):
+        keywords_str = keywords_meta["content"].strip()
+
+    # Decompose boilerplate elements
+    for element in soup(["script", "style", "nav", "footer", "header", "aside", "form", "iframe"]):
+        element.decompose()
+
+    text_blocks = []
+    paragraphs = soup.find_all("p")
+    if paragraphs:
+        for p in paragraphs:
+            p_text = p.get_text(strip=True)
+            if len(p_text) > 10:
+                text_blocks.append(p_text)
+        text = "\n\n".join(text_blocks)
+    else:
+        text = soup.get_text("\n", strip=True)
+
+    return title, text, authors, date_str, keywords_str
+
+def extract_article_content(html_content, url=None, engine="auto"):
+    """
+    Extract the main content and metadata of an article from HTML.
+
+    Args:
+        html_content (str): The HTML content of the page.
+        url (str | None): The URL of the page (helps newspaper3k identify details).
+        engine (str): The parser engine ('auto', 'newspaper', 'trafilatura', 'bs4').
+
+    Returns:
+        dict: A dictionary containing title, text, authors, date, and keywords.
+    """
+    engine = engine.lower()
+
+    if engine == "auto":
+        if HAS_NEWSPAPER:
+            engine = "newspaper"
+        elif HAS_TRAFILATURA:
+            engine = "trafilatura"
+        else:
+            engine = "bs4"
+
+    title, text, authors, date_str, keywords_str = None, None, None, None, None
+
+    try:
+        if engine == "newspaper":
+            if HAS_NEWSPAPER:
+                title, text, authors, date_str, keywords_str = extract_with_newspaper(html_content, url)
+            else:
+                logging.warning("newspaper3k is selected but not installed. Falling back to trafilatura or bs4.")
+                if HAS_TRAFILATURA:
+                    title, text, authors, date_str, keywords_str = extract_with_trafilatura(html_content)
+                else:
+                    title, text, authors, date_str, keywords_str = extract_with_bs4(html_content)
+
+        elif engine == "trafilatura":
+            if HAS_TRAFILATURA:
+                title, text, authors, date_str, keywords_str = extract_with_trafilatura(html_content)
+            else:
+                logging.warning("trafilatura is selected but not installed. Falling back to bs4.")
+                title, text, authors, date_str, keywords_str = extract_with_bs4(html_content)
+
+        elif engine == "bs4":
+            title, text, authors, date_str, keywords_str = extract_with_bs4(html_content)
+
+        else:
+            logging.error(f"Unknown parser engine '{engine}'. Falling back to bs4.")
+            title, text, authors, date_str, keywords_str = extract_with_bs4(html_content)
+
+    except Exception as e:
+        logging.error(f"Error during content extraction with engine {engine}: {e}. Falling back to bs4.")
+        try:
+            title, text, authors, date_str, keywords_str = extract_with_bs4(html_content)
+        except Exception as e_fallback:
+            logging.error(f"Critical error in fallback bs4 parser: {e_fallback}")
+
+    return {
+        "title": title.strip() if title else None,
+        "text": text.strip() if text else None,
+        "authors": authors.strip() if authors else None,
+        "date": date_str.strip() if date_str else None,
+        "keywords": keywords_str.strip() if keywords_str else None
+    }

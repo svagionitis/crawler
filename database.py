@@ -31,7 +31,12 @@ def init_db(database_name):
                 link TEXT NOT NULL,
                 content TEXT,
                 content_hash TEXT,
-                status TEXT NOT NULL CHECK(status IN ('pending', 'crawled'))
+                status TEXT NOT NULL CHECK(status IN ('pending', 'crawled')),
+                extracted_title TEXT,
+                extracted_text TEXT,
+                extracted_authors TEXT,
+                extracted_date TEXT,
+                extracted_keywords TEXT
             )
             """
         )
@@ -41,6 +46,22 @@ def init_db(database_name):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_status ON crawled_data (status)")
         # Create an index on the link, status columns
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_link_status ON crawled_data (link, status)")
+
+        # Run migrations dynamically for existing databases
+        cursor.execute("PRAGMA table_info(crawled_data)")
+        columns = [row[1] for row in cursor.fetchall()]
+        new_columns = [
+            ("extracted_title", "TEXT"),
+            ("extracted_text", "TEXT"),
+            ("extracted_authors", "TEXT"),
+            ("extracted_date", "TEXT"),
+            ("extracted_keywords", "TEXT")
+        ]
+        for col_name, col_type in new_columns:
+            if col_name not in columns:
+                cursor.execute(f"ALTER TABLE crawled_data ADD COLUMN {col_name} {col_type}")
+                logging.info(f"Added column {col_name} to crawled_data table.")
+
         conn.commit()
 
 def save_links_to_db(database_name, domain, links, robots_parser, status="pending"):
@@ -87,18 +108,24 @@ def save_links_to_db(database_name, domain, links, robots_parser, status="pendin
     except sqlite3.Error as e:
         logging.error(f"Database error while saving links: {e}")
 
-def update_link_in_db(database_name, link, content, content_hash, status="crawled"):
-    """Update a link in the database with content, hash, and date_crawled, and mark it with the given status."""
+def update_link_in_db(database_name, link, content, content_hash, status="crawled",
+                      extracted_title=None, extracted_text=None, extracted_authors=None,
+                      extracted_date=None, extracted_keywords=None):
+    """Update a link in the database with content, hash, date_crawled, parsed metadata, and mark it with the given status."""
     try:
         with sqlite3.connect(database_name) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
                 UPDATE crawled_data
-                SET content = ?, content_hash = ?, status = ?, date_crawled = ?
+                SET content = ?, content_hash = ?, status = ?, date_crawled = ?,
+                    extracted_title = ?, extracted_text = ?, extracted_authors = ?,
+                    extracted_date = ?, extracted_keywords = ?
                 WHERE link = ?
                 """,
-                (content, content_hash, status, datetime.now(), link),
+                (content, content_hash, status, datetime.now(),
+                 extracted_title, extracted_text, extracted_authors,
+                 extracted_date, extracted_keywords, link),
             )
             conn.commit()
             logging.info(f"Updated link in database: {link}")
