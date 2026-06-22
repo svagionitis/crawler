@@ -103,13 +103,27 @@ def update_link_in_db(database_name, link, content, content_hash, status="crawle
     except sqlite3.Error as e:
         logging.error(f"Database error while updating link: {e}")
 
-def load_pending_links(database_name):
-    """Load all pending links from the database."""
+def load_pending_links(database_name, limit=None):
+    """Load pending links from the database.
+
+    Args:
+        database_name (str): Path to the SQLite database.
+        limit (int | None): Maximum number of links to return.
+                            Pass None to load all pending links (default behaviour).
+
+    Returns:
+        list[str]: List of pending URLs.
+    """
     pending_links = []
     try:
         with sqlite3.connect(database_name) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT link FROM crawled_data WHERE status = 'pending'")
+            query = "SELECT link FROM crawled_data WHERE status = 'pending'"
+            params = ()
+            if limit is not None:
+                query += " LIMIT ?"
+                params = (limit,)
+            cursor.execute(query, params)
             pending_links = [row[0] for row in cursor.fetchall()]
     except sqlite3.Error as e:
         logging.error(f"Failed to load pending links from database: {e}")

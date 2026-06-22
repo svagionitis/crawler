@@ -105,6 +105,7 @@ python crawler_app.py --url <URL> [OPTIONS]
 | `--re-crawl-time` | `int` | `3` | Hours that must elapse before a URL is eligible for re-crawl. |
 | `--logs-dir` | `str` | `logs` | Directory for log files (created if absent). |
 | `--db-dir` | `str` | `db` | Directory for SQLite databases (created if absent). |
+| `--batch-size` | `int` | `100` | Pending URLs fetched from the DB per batch. Tune down for low-memory hosts, up for resume runs on large DBs. |
 
 ### Examples
 
@@ -245,9 +246,6 @@ Example log output:
 
 ## Known Limitations & Future Work
 
-- **In-memory queue only** — the `to_crawl` list lives in RAM; very large sites may exhaust memory. Consider switching to a database-backed queue (e.g., read from `pending` in batches).
 - **Single-threaded** — one page fetched at a time. Adding `asyncio` or a thread pool would increase throughput significantly.
 - **No content parsing** — raw HTML/Base64 is stored as-is. A downstream pipeline is needed to extract article text, metadata, etc.
-- **No `requirements.txt` / `pyproject.toml`** — adding one would simplify dependency management for new contributors.
-- **`response` variable referenced before assignment** — in `utils.py`, the `HTTPError` handler accesses `response.status_code` which is set by `requests.get`, but the name could theoretically be unbound if the exception is raised before assignment. This is safe in practice with `requests` but adding an `UnboundLocalError` guard would make the intent explicit.
 - **Link extraction limited to `<a href>`** — `<link>`, `<script src>`, sitemaps, and RSS feeds are not followed.

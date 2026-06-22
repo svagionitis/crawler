@@ -66,19 +66,15 @@ def initialize_crawler(start_url, respect_robots, crawl_delay, logs_dir, db_dir)
     return database_name, robots_parser, crawl_delay
 
 def prepare_crawl_queue(database_name, start_url, robots_parser, resume):
-    """Prepare the queue of links to crawl, either from the database or the starting URL."""
-    to_crawl = []
-    # If we want to resume and the database is not empty, load pending links,
-    # else start with the initial URL
+    """Seed the database queue with the start URL when not resuming.
+
+    The queue is now entirely DB-backed; this function no longer returns a list.
+    """
     if resume and not is_database_empty(database_name):
         logging.info(f"Resuming from existing database: {database_name}")
-        to_crawl = load_pending_links(database_name)
     else:
-        # Start with the initial URL
-        to_crawl = [start_url]
+        logging.info(f"Starting fresh crawl from: {start_url}")
         save_links_to_db(database_name, urlparse(start_url).netloc, [start_url], robots_parser)
-
-    return to_crawl
 
 def crawl_page(database_name, current_url, robots_parser, no_duplicates, visited_hashes, re_crawl_time):
     """Crawl a single page, fetch content, check for duplicates, and save data."""
@@ -120,43 +116,41 @@ def process_new_links(current_url, content, robots_parser):
     new_links = extract_links(current_url, content, robots_parser)
     return new_links
 
-def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume, re_crawl_time, logs_dir, db_dir):
+def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume, re_crawl_time, logs_dir, db_dir, batch_size):
     """Crawl the site starting from the given URL."""
     # Initialize the crawler
     database_name, robots_parser, crawl_delay = initialize_crawler(start_url, respect_robots, crawl_delay, logs_dir, db_dir)
 
-    # Prepare the crawl queue
-    to_crawl = prepare_crawl_queue(database_name, start_url, robots_parser, resume)
+    # Seed or resume the DB queue (no in-memory list returned)
+    prepare_crawl_queue(database_name, start_url, robots_parser, resume)
 
     # Initialize visited hashes for duplicate detection
     visited_hashes = set()
 
-    # Batch storage for new links to save
-    new_links_to_save = []
+    domain = urlparse(start_url).netloc
 
-    while to_crawl:
-        current_url = to_crawl.pop(0)
+    # Pull pending links from the DB in bounded batches to keep memory usage flat
+    while True:
+        batch = load_pending_links(database_name, limit=batch_size)
+        if not batch:
+            logging.info("No pending links remaining. Crawl complete.")
+            break
 
-        # Crawl the page
-        content, action = crawl_page(database_name, current_url, robots_parser, no_duplicates, visited_hashes, re_crawl_time)
-        if content and action is None:
-            # Process new links
-            new_links = process_new_links(current_url, content, robots_parser)
-            new_links_to_save.extend(new_links)
-            to_crawl.extend(new_links)
-        elif content is None and action:
-            # If the page was not crawled successfully, because of the robot rules or the re-crawl time, then get the next link to crawl
-            # without waiting for the crawl delay
-            continue
+        for current_url in batch:
+            # Crawl the page
+            content, action = crawl_page(database_name, current_url, robots_parser, no_duplicates, visited_hashes, re_crawl_time)
+            if content and action is None:
+                # Save newly discovered links directly to the DB queue
+                new_links = process_new_links(current_url, content, robots_parser)
+                if new_links:
+                    save_links_to_db(database_name, domain, list(new_links), robots_parser)
+            elif content is None and action:
+                # Robot rules or re-crawl window — skip delay and move on
+                continue
 
-        # Batch save new links
-        if new_links_to_save:
-            save_links_to_db(database_name, urlparse(start_url).netloc, new_links_to_save, robots_parser)
-            new_links_to_save = []
-
-        # Respect the crawl delay
-        logging.info(f"Waiting for {crawl_delay} seconds before the next request...")
-        time.sleep(crawl_delay)
+            # Respect the crawl delay
+            logging.info(f"Waiting for {crawl_delay} seconds before the next request...")
+            time.sleep(crawl_delay)
 
 def main():
     """Main function to handle command-line arguments and start crawling."""
@@ -201,11 +195,17 @@ def main():
         default="db",
         help="Directory to save database files (default: db).",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=100,
+        help="Number of pending links to load from the database per batch (default: 100).",
+    )
     args = parser.parse_args()
 
     # Start crawling
     crawl_site(args.url, args.respect_robots, args.no_duplicates, args.crawl_delay,
-               args.resume, args.re_crawl_time, args.logs_dir, args.db_dir)
+               args.resume, args.re_crawl_time, args.logs_dir, args.db_dir, args.batch_size)
 
 if __name__ == "__main__":
     main()
