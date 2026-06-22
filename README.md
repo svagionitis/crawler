@@ -263,5 +263,8 @@ Example log output:
 
 ## Known Limitations & Future Work
 
-- **No content parsing** — raw HTML/Base64 is stored as-is. A downstream pipeline is needed to extract article text, metadata, etc.
+- **Dynamic / JavaScript-Rendered Sites** — The crawler currently performs static HTTP requests. Sites that rely on client-side JavaScript framework rendering (React, Vue, etc.) or load articles dynamically will not have their text contents fully captured. Incorporating a headless browser rendering engine (such as Playwright, Selenium, or Pyppeteer) is a planned feature to handle dynamic web content.
+- **Content Parsing & Text Extraction** — Currently, raw HTML and binary content are saved as-is. To facilitate downstream analysis, a text extraction pipeline should be introduced (e.g., using `BeautifulSoup` text extraction, `trafilatura`, or `newspaper3k`) to isolate the primary article body, headlines, and publication dates while discarding page boilerplate like headers, footers, sidebars, and ads.
+- **Plagiarism & Duplicate Content Detection** — To check if news reports are plagiarized or cover identical stories, extracted article texts can be compared using natural language processing (NLP) and similarity algorithms (such as MinHash/LSH, Cosine Similarity via TF-IDF or word/document embeddings, and sequence alignment).
 - **Link extraction limited to `<a href>`** — `<link>`, `<script src>`, sitemaps, and RSS feeds are not followed.
+
