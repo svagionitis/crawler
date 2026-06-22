@@ -1,0 +1,8 @@
+# HTTP client — fetches web pages with retry/backoff support
+requests==2.32.3
+
+# HTML parser — extracts <a href> links from crawled pages
+beautifulsoup4==4.13.3
+
+# CA bundle — used by requests for SSL certificate verification
+certifi==2025.1.31
