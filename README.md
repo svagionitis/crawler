@@ -26,6 +26,8 @@ A lightweight, polite web crawler written in Python that scrapes news sites and 
 
 - **robots.txt compliance** — respects `Disallow` rules and honours the `Crawl-delay` directive.
 - **Configurable crawl delay** — defaults to 30 s; overridden by `robots.txt` if its value is higher.
+- **Concurrent crawling (multi-threading)** — support for parallel worker threads via a thread pool (`--workers`) with safety locks.
+- **Auto-scaled rate-limiting** — automatically scales individual worker delays to keep the overall request rate to the server safe and unchanged.
 - **Resume support** — loads `pending` links from an existing SQLite database so interrupted runs can continue.
 - **Re-crawl window** — skips pages crawled within a configurable time window (default: 3 hours) to avoid hammering the same URL.
 - **Duplicate detection** — optional SHA-256 content-hash check prevents storing identical pages more than once per session.
@@ -81,8 +83,8 @@ python -m venv .venv
 # macOS / Linux
 source .venv/bin/activate
 
-# Install dependencies
-pip install requests beautifulsoup4 certifi
+# Install dependencies using the requirements file
+pip install -r requirements.txt
 ```
 
 ---
@@ -106,6 +108,13 @@ python crawler_app.py --url <URL> [OPTIONS]
 | `--logs-dir` | `str` | `logs` | Directory for log files (created if absent). |
 | `--db-dir` | `str` | `db` | Directory for SQLite databases (created if absent). |
 | `--batch-size` | `int` | `100` | Pending URLs fetched from the DB per batch. Tune down for low-memory hosts, up for resume runs on large DBs. |
+| `--workers` | `int` | `1` | Number of parallel worker threads. The crawl delay is automatically scaled by this factor to maintain the aggregate request rate to the server, and forced to 1 if a `robots.txt` crawl delay is applied. |
+
+### Multi-threading & Rate Limiting
+
+To increase throughput without overloading target servers, the crawler supports concurrent crawling via `--workers`:
+- **Auto-scaled Delay**: If you specify `--workers N` and a `--crawl-delay D`, the crawler automatically scales the delay for each individual worker to `D * N` seconds. This ensures that the overall request frequency hitting the server remains 1 request every `D` seconds on average.
+- **robots.txt Safety**: If a site's `robots.txt` specifies a `Crawl-delay` and you run with `--respect-robots`, the crawler forces `--workers` to `1`. This is done to strictly honor the site's crawling policies and prevent parallel request bursts.
 
 ### Examples
 
@@ -125,6 +134,14 @@ python crawler_app.py \
   --re-crawl-time 24 \
   --logs-dir C:\logs \
   --db-dir C:\db
+```
+
+**Multi-threaded crawl with 4 workers (auto-scales 15 s delay to 60 s per worker thread to maintain 15 s server rate):**
+```bash
+python crawler_app.py \
+  --url https://www.kathimerini.gr \
+  --workers 4 \
+  --crawl-delay 15
 ```
 
 **Re-crawl the same site weekly (168 h window):**
@@ -163,7 +180,7 @@ Each window's title bar shows the URL being crawled. Sites currently configured 
 
 ## Database Schema
 
-Each domain gets its own SQLite file named `crawled_data_<domain>.db` inside `--db-dir`.
+Each domain gets its own SQLite file named `crawled_data_<domain>.db` inside `--db-dir`. The database uses Write-Ahead Log (WAL) mode (`PRAGMA journal_mode=WAL`) to support concurrent writes from multiple worker threads without locking.
 
 ```sql
 CREATE TABLE crawled_data (
@@ -246,6 +263,5 @@ Example log output:
 
 ## Known Limitations & Future Work
 
-- **Single-threaded** — one page fetched at a time. Adding `asyncio` or a thread pool would increase throughput significantly.
 - **No content parsing** — raw HTML/Base64 is stored as-is. A downstream pipeline is needed to extract article text, metadata, etc.
 - **Link extraction limited to `<a href>`** — `<link>`, `<script src>`, sitemaps, and RSS feeds are not followed.

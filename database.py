@@ -19,6 +19,8 @@ def init_db(database_name):
     """Initialize the SQLite database and create the table if it doesn't exist."""
     with sqlite3.connect(database_name) as conn:
         cursor = conn.cursor()
+        # WAL mode allows concurrent reads during writes — essential for multi-threading
+        cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS crawled_data (

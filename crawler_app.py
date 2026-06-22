@@ -10,6 +10,8 @@ from database import init_db, save_links_to_db, update_link_in_db, \
 from utils import fetch_page, extract_links, compute_hash, ensure_directory_exists
 from config import USER_AGENT
 from datetime import datetime
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def get_log_file_name(domain, logs_dir):
     """Generate the log filename based on the domain and current datetime, and save it in the specified logs directory."""
@@ -23,7 +25,13 @@ def get_log_file_name(domain, logs_dir):
     return os.path.join(logs_dir, f"crawler_{domain}_{current_datetime}.log")
 
 def initialize_crawler(start_url, respect_robots, crawl_delay, logs_dir, db_dir):
-    """Initialize the crawler, including database, logging, and robots.txt parser."""
+    """Initialize the crawler, including database, logging, and robots.txt parser.
+
+    Returns:
+        tuple: (database_name, robots_parser, crawl_delay, robots_delay_applied)
+               robots_delay_applied is True when the crawl_delay was overridden by
+               robots.txt, so callers can enforce single-threaded mode appropriately.
+    """
     # Parse the domain
     domain = urlparse(start_url).netloc
 
@@ -46,24 +54,26 @@ def initialize_crawler(start_url, respect_robots, crawl_delay, logs_dir, db_dir)
 
     # Initialize robots.txt parser
     robots_parser = None
+    robots_delay_applied = False
     if respect_robots:
         robots_parser = RobotFileParser()
         robots_url = urljoin(start_url, "/robots.txt")
         robots_content, robots_error_description = fetch_page(robots_url)
         if robots_error_description:
             logging.warning(f"Failed to fetch robots.txt: {robots_error_description}")
-            return database_name, None, crawl_delay
+            return database_name, None, crawl_delay, False
         try:
             robots_parser.parse(robots_content.splitlines())
             # Use the crawl delay from robots.txt if available
             robots_crawl_delay = robots_parser.crawl_delay(USER_AGENT)
             if robots_crawl_delay is not None and robots_crawl_delay > crawl_delay:
                 crawl_delay = robots_crawl_delay
+                robots_delay_applied = True
                 logging.info(f"Using crawl delay from robots.txt: {crawl_delay} seconds")
         except Exception as e:
             logging.warning(f"Failed to read robots.txt: {e}")
 
-    return database_name, robots_parser, crawl_delay
+    return database_name, robots_parser, crawl_delay, robots_delay_applied
 
 def prepare_crawl_queue(database_name, start_url, robots_parser, resume):
     """Seed the database queue with the start URL when not resuming.
@@ -76,8 +86,15 @@ def prepare_crawl_queue(database_name, start_url, robots_parser, resume):
         logging.info(f"Starting fresh crawl from: {start_url}")
         save_links_to_db(database_name, urlparse(start_url).netloc, [start_url], robots_parser)
 
-def crawl_page(database_name, current_url, robots_parser, no_duplicates, visited_hashes, re_crawl_time):
-    """Crawl a single page, fetch content, check for duplicates, and save data."""
+def crawl_page(database_name, current_url, robots_parser, no_duplicates,
+               visited_hashes, visited_hashes_lock, re_crawl_time):
+    """Crawl a single page, fetch content, check for duplicates, and save data.
+
+    Args:
+        visited_hashes_lock (threading.Lock): Acquired atomically around the
+            hash check-and-add to prevent TOCTOU races in multi-threaded mode.
+            Always provided; only contended when --no-duplicates is active.
+    """
     # Check robots.txt
     if robots_parser and not robots_parser.can_fetch(USER_AGENT, current_url):
         logging.info(f"Skipping {current_url} due to robots.txt")
@@ -99,15 +116,19 @@ def crawl_page(database_name, current_url, robots_parser, no_duplicates, visited
         logging.info(f"Failed to crawl {current_url}: {error_description}")
         return None, None
 
-    # Compute hash and check for duplicates
+    # Compute hash and check for duplicates.
+    # The lock makes the check-and-add atomic, preventing two threads from both
+    # seeing a miss and both saving the same content (TOCTOU race).
     content_hash = compute_hash(content)
-    if no_duplicates and content_hash in visited_hashes:
-        logging.info(f"Skipping duplicate content: {current_url}")
-        return None, None
+    if no_duplicates:
+        with visited_hashes_lock:
+            if content_hash in visited_hashes:
+                logging.info(f"Skipping duplicate content: {current_url}")
+                return None, None
+            visited_hashes.add(content_hash)
 
     # Save content and mark as crawled
     update_link_in_db(database_name, current_url, content, content_hash, status="crawled")
-    visited_hashes.add(content_hash)
 
     return content, None
 
@@ -116,41 +137,102 @@ def process_new_links(current_url, content, robots_parser):
     new_links = extract_links(current_url, content, robots_parser)
     return new_links
 
-def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume, re_crawl_time, logs_dir, db_dir, batch_size):
+def crawl_worker(database_name, current_url, robots_parser, no_duplicates,
+                  visited_hashes, visited_hashes_lock, re_crawl_time,
+                  domain, crawl_delay):
+    """Fetch a single URL, save content, and enqueue discovered links.
+
+    Designed to be submitted to a ThreadPoolExecutor. Each worker sleeps
+    crawl_delay seconds after a real fetch so the effective request rate to
+    the server equals crawl_delay / workers (auto-scaled by crawl_site).
+
+    Returns:
+        str: The URL that was processed, for logging in the caller.
+    """
+    content, action = crawl_page(
+        database_name, current_url, robots_parser,
+        no_duplicates, visited_hashes, visited_hashes_lock, re_crawl_time,
+    )
+    if content and action is None:
+        new_links = process_new_links(current_url, content, robots_parser)
+        if new_links:
+            save_links_to_db(database_name, domain, list(new_links), robots_parser)
+    elif content is None and action:
+        # Robot skip or re-crawl window — no network request was made, skip delay
+        return current_url
+
+    # Respect the crawl delay after every real network request
+    logging.info(f"Waiting for {crawl_delay} seconds before the next request...")
+    time.sleep(crawl_delay)
+    return current_url
+
+def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume,
+               re_crawl_time, logs_dir, db_dir, batch_size, workers):
     """Crawl the site starting from the given URL."""
     # Initialize the crawler
-    database_name, robots_parser, crawl_delay = initialize_crawler(start_url, respect_robots, crawl_delay, logs_dir, db_dir)
+    database_name, robots_parser, crawl_delay, robots_delay_applied = initialize_crawler(
+        start_url, respect_robots, crawl_delay, logs_dir, db_dir
+    )
 
-    # Seed or resume the DB queue (no in-memory list returned)
+    # Apply worker constraints and delay auto-scaling.
+    # With N workers each sleeping D seconds, the server receives one request
+    # every D/N seconds.  To maintain the user’s intended per-request interval,
+    # scale the per-worker delay up by N so the aggregate rate stays the same.
+    if workers > 1:
+        if robots_delay_applied:
+            logging.warning(
+                f"robots.txt specifies a crawl delay of {crawl_delay}s. "
+                f"Forcing --workers to 1 to honour it."
+            )
+            workers = 1
+        else:
+            scaled_delay = crawl_delay * workers
+            logging.info(
+                f"Scaling crawl delay from {crawl_delay}s to {scaled_delay}s "
+                f"({workers} workers × {crawl_delay}s) to maintain server load."
+            )
+            crawl_delay = scaled_delay
+
+    # Seed or resume the DB queue
     prepare_crawl_queue(database_name, start_url, robots_parser, resume)
 
-    # Initialize visited hashes for duplicate detection
+    # Shared state for duplicate detection (lock prevents TOCTOU race)
     visited_hashes = set()
+    visited_hashes_lock = threading.Lock()
 
     domain = urlparse(start_url).netloc
 
-    # Pull pending links from the DB in bounded batches to keep memory usage flat
+    # Pull pending links from the DB in bounded batches to keep memory usage flat.
+    # The executor is re-created per batch so newly discovered links are picked
+    # up by the next DB query before the next batch is dispatched.
     while True:
         batch = load_pending_links(database_name, limit=batch_size)
         if not batch:
             logging.info("No pending links remaining. Crawl complete.")
             break
 
-        for current_url in batch:
-            # Crawl the page
-            content, action = crawl_page(database_name, current_url, robots_parser, no_duplicates, visited_hashes, re_crawl_time)
-            if content and action is None:
-                # Save newly discovered links directly to the DB queue
-                new_links = process_new_links(current_url, content, robots_parser)
-                if new_links:
-                    save_links_to_db(database_name, domain, list(new_links), robots_parser)
-            elif content is None and action:
-                # Robot rules or re-crawl window — skip delay and move on
-                continue
-
-            # Respect the crawl delay
-            logging.info(f"Waiting for {crawl_delay} seconds before the next request...")
-            time.sleep(crawl_delay)
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(
+                    crawl_worker,
+                    database_name=database_name,
+                    current_url=url,
+                    robots_parser=robots_parser,
+                    no_duplicates=no_duplicates,
+                    visited_hashes=visited_hashes,
+                    visited_hashes_lock=visited_hashes_lock,
+                    re_crawl_time=re_crawl_time,
+                    domain=domain,
+                    crawl_delay=crawl_delay,
+                ): url
+                for url in batch
+            }
+            for future in as_completed(futures):
+                url = futures[future]
+                try:
+                    future.result()
+                except Exception as exc:
+                    logging.error(f"Worker raised an exception for {url}: {exc}")
 
 def main():
     """Main function to handle command-line arguments and start crawling."""
@@ -201,11 +283,23 @@ def main():
         default=100,
         help="Number of pending links to load from the database per batch (default: 100).",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help=(
+            "Number of parallel worker threads (default: 1 = single-threaded). "
+            "The crawl delay is automatically scaled by this factor so the "
+            "effective request rate to the server remains unchanged. "
+            "Forced to 1 when robots.txt specifies a Crawl-delay."
+        ),
+    )
     args = parser.parse_args()
 
     # Start crawling
     crawl_site(args.url, args.respect_robots, args.no_duplicates, args.crawl_delay,
-               args.resume, args.re_crawl_time, args.logs_dir, args.db_dir, args.batch_size)
+               args.resume, args.re_crawl_time, args.logs_dir, args.db_dir,
+               args.batch_size, args.workers)
 
 if __name__ == "__main__":
     main()
