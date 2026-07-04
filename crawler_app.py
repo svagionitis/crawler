@@ -3,6 +3,7 @@ import argparse
 import logging
 import time
 import os
+import json
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 from database import init_db, save_links_to_db, update_link_in_db, \
@@ -39,7 +40,12 @@ def initialize_crawler(start_url, respect_robots, crawl_delay, logs_dir, db_dir)
     database_name = get_database_name(domain, db_dir)
     log_file_name = get_log_file_name(domain, logs_dir)
 
-    # Configure logging with UTF-8 encoding
+    # Configure logging with UTF-8 encoding (resetting handlers first to support multiple log targets)
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+        handler.close()
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
@@ -251,8 +257,13 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume,
 
 def main():
     """Main function to handle command-line arguments and start crawling."""
-    parser = argparse.ArgumentParser(description="Crawl a news site and save data to SQLite.")
-    parser.add_argument("--url", required=True, help="The URL of the news site to crawl.")
+    parser = argparse.ArgumentParser(description="Crawl news sites and save data to SQLite.")
+    parser.add_argument("--url", help="The URL of the news site to crawl.")
+    parser.add_argument(
+        "--config",
+        type=str,
+        help="Path to a JSON configuration file containing site crawl settings (array of objects format).",
+    )
     parser.add_argument(
         "--respect-robots",
         action="store_true",
@@ -323,10 +334,78 @@ def main():
     )
     args = parser.parse_args()
 
-    # Start crawling
-    crawl_site(args.url, args.respect_robots, args.no_duplicates, args.crawl_delay,
-               args.resume, args.re_crawl_time, args.logs_dir, args.db_dir,
-               args.batch_size, args.workers, args.parser)
+    # Validate mutual exclusivity of --url and --config
+    if not args.url and not args.config:
+        parser.error("one of the following arguments is required: --url or --config")
+    if args.url and args.config:
+        parser.error("arguments --url and --config are mutually exclusive")
+
+    if args.url:
+        # Start crawling the single URL
+        crawl_site(
+            start_url=args.url,
+            respect_robots=args.respect_robots,
+            no_duplicates=args.no_duplicates,
+            crawl_delay=args.crawl_delay,
+            resume=args.resume,
+            re_crawl_time=args.re_crawl_time,
+            logs_dir=args.logs_dir,
+            db_dir=args.db_dir,
+            batch_size=args.batch_size,
+            workers=args.workers,
+            parser_engine=args.parser,
+        )
+    else:
+        # Load and validate configuration file
+        try:
+            with open(args.config, "r", encoding="utf-8") as f:
+                config_data = json.load(f)
+        except Exception as e:
+            parser.error(f"Failed to read or parse configuration file: {e}")
+
+        if not isinstance(config_data, list):
+            parser.error("Configuration file must contain a JSON array of objects.")
+
+        for i, site in enumerate(config_data):
+            if not isinstance(site, dict):
+                parser.error(f"Item at index {i} in configuration file is not a JSON object.")
+            if "url" not in site:
+                parser.error(f"Item at index {i} in configuration file is missing the required 'url' field.")
+
+        # Run sequential crawls for each site configuration
+        for site in config_data:
+            url = site["url"]
+            respect_robots = site.get("respect_robots", args.respect_robots)
+            no_duplicates = site.get("no_duplicates", args.no_duplicates)
+            crawl_delay = site.get("crawl_delay", args.crawl_delay)
+            resume = site.get("resume", args.resume)
+            re_crawl_time = site.get("re_crawl_time", args.re_crawl_time)
+            logs_dir = site.get("logs_dir", args.logs_dir)
+            db_dir = site.get("db_dir", args.db_dir)
+            batch_size = site.get("batch_size", args.batch_size)
+            workers = site.get("workers", args.workers)
+            parser_engine = site.get("parser", args.parser)
+
+            print(f"\n=== Starting crawl for: {url} ===")
+            try:
+                crawl_site(
+                    start_url=url,
+                    respect_robots=respect_robots,
+                    no_duplicates=no_duplicates,
+                    crawl_delay=crawl_delay,
+                    resume=resume,
+                    re_crawl_time=re_crawl_time,
+                    logs_dir=logs_dir,
+                    db_dir=db_dir,
+                    batch_size=batch_size,
+                    workers=workers,
+                    parser_engine=parser_engine,
+                )
+            except (KeyboardInterrupt, SystemExit):
+                print("\nCrawl execution interrupted by user. Exiting.")
+                raise
+            except Exception as e:
+                logging.error(f"Failed to crawl site {url}: {e}", exc_info=True)
 
 if __name__ == "__main__":
     main()

@@ -92,14 +92,19 @@ pip install -r requirements.txt
 ## Usage
 
 ```bash
+# Crawl a single website
 python crawler_app.py --url <URL> [OPTIONS]
+
+# Crawl multiple websites sequentially using a JSON configuration file
+python crawler_app.py --config <PATH_TO_JSON> [OPTIONS]
 ```
 
 ### Command-line Arguments
 
 | Argument | Type | Default | Description |
 |---|---|---|---|
-| `--url` | `str` | **required** | Seed URL to start crawling from. |
+| `--url` | `str` | `None` | Seed URL to start crawling from (required unless `--config` is specified). |
+| `--config` | `str` | `None` | Path to a JSON configuration file containing target URLs and site-specific options (array of objects format). |
 | `--respect-robots` | flag | `False` | Honour `robots.txt` disallow rules and crawl-delay. |
 | `--no-duplicates` | flag | `False` | Skip pages whose SHA-256 hash was already seen in this session. |
 | `--crawl-delay` | `int` | `30` | Seconds to wait between requests. Overridden upward by `robots.txt`. |
@@ -110,6 +115,39 @@ python crawler_app.py --url <URL> [OPTIONS]
 | `--batch-size` | `int` | `100` | Pending URLs fetched from the DB per batch. Tune down for low-memory hosts, up for resume runs on large DBs. |
 | `--workers` | `int` | `1` | Number of parallel worker threads. The crawl delay is automatically scaled by this factor to maintain the aggregate request rate to the server, and forced to 1 if a `robots.txt` crawl delay is applied. |
 | `--parser` | `str` | `auto` | Parsing engine for content & text extraction (`auto`, `newspaper`, `trafilatura`, `bs4`). |
+
+### Crawling Multiple URLs via JSON Configuration
+
+Instead of crawling a single site via `--url`, you can provide a JSON file containing an array of target site configurations using `--config`.
+
+Each object in the array represents a target site and can override any of the standard crawler settings:
+
+```json
+[
+  {
+    "url": "https://news.ycombinator.com",
+    "respect_robots": true,
+    "crawl_delay": 5,
+    "re_crawl_time": 8,
+    "workers": 2
+  },
+  {
+    "url": "https://www.tovima.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "re_crawl_time": 24
+  }
+]
+```
+
+#### Option Merging & Fallbacks
+Any site-specific settings omitted from a site's JSON block will automatically fall back to the CLI arguments supplied on execution (or standard CLI defaults). For example, running:
+
+```bash
+python crawler_app.py --config config.json --db-dir F:\db --logs-dir F:\logs
+```
+
+will apply `F:\db` and `F:\logs` as the database and logs directory settings for all sites in `config.json` except those that specify their own local `db_dir` or `logs_dir` fields.
 
 ### Multi-threading & Rate Limiting
 
@@ -136,6 +174,11 @@ For downstream text similarity, plagiarism checking, or general news analysis, t
 **Basic crawl (no robots.txt, 30 s delay):**
 ```bash
 python crawler_app.py --url https://www.example.com
+```
+
+**Sequential multi-site crawl using a JSON configuration:**
+```bash
+python crawler_app.py --config config.json --db-dir F:\db --logs-dir F:\logs
 ```
 
 **Polite crawl with resume and duplicate filtering:**
