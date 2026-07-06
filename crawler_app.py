@@ -1,6 +1,7 @@
 import requests
 import argparse
 import logging
+import signal
 import time
 import os
 import json
@@ -13,6 +14,11 @@ from config import USER_AGENT
 from datetime import datetime
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Graceful shutdown flag — set by the SIGINT handler so workers can finish
+# their current page before exiting.
+shutdown_event = threading.Event()
+_original_sigint_handler = None
 
 def get_log_file_name(domain, logs_dir, logger=None):
     """Generate the log filename based on the domain and current datetime, and save it in the specified logs directory."""
@@ -176,6 +182,10 @@ def crawl_worker(database_name, current_url, robots_parser, no_duplicates,
     Returns:
         str: The URL that was processed, for logging in the caller.
     """
+    # Check for shutdown before starting work on this URL
+    if shutdown_event.is_set():
+        return current_url
+
     content, action = crawl_page(
         database_name, current_url, robots_parser,
         no_duplicates, visited_hashes, visited_hashes_lock, re_crawl_time,
@@ -190,9 +200,14 @@ def crawl_worker(database_name, current_url, robots_parser, no_duplicates,
         # Robot skip or re-crawl window — no network request was made, skip delay
         return current_url
 
-    # Respect the crawl delay after every real network request
+    # Respect the crawl delay after every real network request.
+    # Sleep in small intervals so we can react to shutdown_event quickly.
     logger.info(f"Waiting for {crawl_delay} seconds before the next request...")
-    time.sleep(crawl_delay)
+    remaining = crawl_delay
+    while remaining > 0 and not shutdown_event.is_set():
+        chunk = min(remaining, 0.5)
+        time.sleep(chunk)
+        remaining -= chunk
     return current_url
 def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume,
                re_crawl_time, logs_dir, db_dir, batch_size, workers, parser_engine="auto"):
@@ -233,7 +248,7 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume,
     # Pull pending links from the DB in bounded batches to keep memory usage flat.
     # The executor is re-created per batch so newly discovered links are picked
     # up by the next DB query before the next batch is dispatched.
-    while True:
+    while not shutdown_event.is_set():
         batch = load_pending_links(database_name, limit=batch_size, logger=logger)
         if not batch:
             logger.info("No pending links remaining. Crawl complete.")
@@ -264,8 +279,30 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume,
                 except Exception as exc:
                     logger.error(f"Worker raised an exception for {url}: {exc}")
 
+    if shutdown_event.is_set():
+        logger.info("Shutdown requested. Crawl stopped gracefully.")
+
+def _handle_sigint(signum, frame):
+    """Handle Ctrl+C by setting the shutdown event.
+
+    The first Ctrl+C triggers a graceful shutdown — in-flight pages finish,
+    no new work is started.  A second Ctrl+C restores the original handler
+    and re-raises, causing an immediate (hard) exit.
+    """
+    global _original_sigint_handler
+    if shutdown_event.is_set():
+        # Second Ctrl+C — restore original handler and re-raise for hard exit
+        signal.signal(signal.SIGINT, _original_sigint_handler)
+        print("\nForced shutdown. Exiting immediately.")
+        raise KeyboardInterrupt
+    print("\nShutdown requested (Ctrl+C). Finishing in-flight pages … press Ctrl+C again to force quit.")
+    shutdown_event.set()
+
 def main():
     """Main function to handle command-line arguments and start crawling."""
+    global _original_sigint_handler
+    _original_sigint_handler = signal.getsignal(signal.SIGINT)
+    signal.signal(signal.SIGINT, _handle_sigint)
     parser = argparse.ArgumentParser(description="Crawl news sites and save data to SQLite.")
     parser.add_argument("--url", help="The URL of the news site to crawl.")
     parser.add_argument(
@@ -403,11 +440,9 @@ def main():
             print(f"\n=== Starting crawl for: {cfg['start_url']} ===")
             try:
                 crawl_site(**cfg)
-            except (KeyboardInterrupt, SystemExit):
-                raise
             except Exception as e:
-                logging.error(
-                    f"Failed to crawl site {cfg['start_url']}: {e}", exc_info=True
+                print(
+                    f"Failed to crawl site {cfg['start_url']}: {e}"
                 )
             return cfg["start_url"]
 
@@ -426,7 +461,7 @@ def main():
                     print(f"\n=== Crawl finished for: {url} ===")
                 except (KeyboardInterrupt, SystemExit):
                     print("\nCrawl execution interrupted by user. Exiting.")
-                    raise
+                    break
                 except Exception as e:
                     print(f"Unhandled error for {url}: {e}")
 
