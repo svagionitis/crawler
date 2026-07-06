@@ -18,6 +18,7 @@ A lightweight, polite web crawler written in Python that scrapes news sites and 
 - [Project Structure](#project-structure)
 - [Configuration](#configuration)
 - [Logging](#logging)
+- [Graceful Shutdown](#graceful-shutdown)
 - [Known Limitations & Future Work](#known-limitations--future-work)
 
 ---
@@ -34,7 +35,8 @@ A lightweight, polite web crawler written in Python that scrapes news sites and 
 - **Binary content handling** — non-text responses (images, PDFs, etc.) are stored Base64-encoded.
 - **Retry with exponential backoff** — up to 3 retries on timeouts and 504 Gateway Timeout errors.
 - **Domain-scoped crawl** — only follows links that share the same `netloc` as the seed URL.
-- **Structured logging** — timestamped log files per domain, written with UTF-8 encoding.
+- **Structured logging** — timestamped log files per domain, written with UTF-8 encoding. Each site gets its own isolated logger in parallel mode — no cross-contamination between log files.
+- **Graceful shutdown** — press `Ctrl+C` once to finish in-flight pages and exit cleanly; press again to force-quit immediately.
 
 ---
 
@@ -64,8 +66,10 @@ The crawler follows a simple **BFS queue** pattern:
 - [requests](https://pypi.org/project/requests/)
 - [beautifulsoup4](https://pypi.org/project/beautifulsoup4/)
 - [certifi](https://pypi.org/project/certifi/)
+- [trafilatura](https://pypi.org/project/trafilatura/) (≥ 1.8.0) — article text extraction & boilerplate removal
+- [newspaper3k](https://pypi.org/project/newspaper3k/) (≥ 0.2.8) — news article scraping (title, authors, date, keywords)
 
-Standard-library modules used: `sqlite3`, `hashlib`, `argparse`, `logging`, `urllib`, `base64`, `datetime`, `os`, `time`.
+Standard-library modules used: `sqlite3`, `hashlib`, `argparse`, `logging`, `signal`, `urllib`, `base64`, `datetime`, `os`, `time`, `json`, `threading`.
 
 ---
 
@@ -258,15 +262,20 @@ Each domain gets its own SQLite file named `crawled_data_<domain>.db` inside `--
 
 ```sql
 CREATE TABLE crawled_data (
-    id             INTEGER  PRIMARY KEY AUTOINCREMENT,
-    domain         TEXT     NOT NULL,
-    date_inserted  DATETIME NOT NULL,   -- when the link was first discovered / last updated
-    date_crawled   DATETIME,            -- when the page was last successfully fetched
-    link           TEXT     NOT NULL,
-    content        TEXT,                -- HTML (text) or Base64 (binary)
-    content_hash   TEXT,                -- SHA-256 of content; also stored on fetch errors
-    status         TEXT     NOT NULL    -- 'pending' | 'crawled'
-                   CHECK(status IN ('pending', 'crawled'))
+    id                 INTEGER  PRIMARY KEY AUTOINCREMENT,
+    domain             TEXT     NOT NULL,
+    date_inserted      DATETIME NOT NULL,   -- when the link was first discovered / last updated
+    date_crawled       DATETIME,            -- when the page was last successfully fetched
+    link               TEXT     NOT NULL,
+    content            TEXT,                -- HTML (text) or Base64 (binary)
+    content_hash       TEXT,                -- SHA-256 of content; also stored on fetch errors
+    status             TEXT     NOT NULL    -- 'pending' | 'crawled'
+                       CHECK(status IN ('pending', 'crawled')),
+    extracted_title    TEXT,                -- article headline
+    extracted_text     TEXT,                -- clean body text (boilerplate removed)
+    extracted_authors  TEXT,                -- comma-separated author list
+    extracted_date     TEXT,                -- publication date (ISO format or raw string)
+    extracted_keywords TEXT                 -- comma-separated keywords
 );
 
 -- Indexes for fast queue queries
@@ -294,8 +303,13 @@ re-crawl skipped → pending (date_inserted refreshed)
 ├── config.py               # Shared constants (USER_AGENT)
 ├── database.py             # SQLite helpers (init, save, update, load, check)
 ├── utils.py                # HTTP fetch, link extraction, hashing, directory utils
+├── requirements.txt        # Python dependencies
+├── config/
+│   ├── news-sites-gr.json  # Default multi-site crawl configuration (Greek news outlets)
+│   └── sites.json          # Alternative/extended site configuration
 ├── scripts/
-│   └── crawl-links.ps1     # PowerShell multi-site launcher
+│   ├── crawl-links.ps1     # PowerShell multi-site launcher (one window per site)
+│   └── crawl-by-config.ps1 # PowerShell config-driven launcher (single process)
 ├── test-page.htm           # Sample HTML page for offline testing
 ├── .editorconfig           # Editor formatting rules (4-space indent, UTF-8)
 ├── .gitignore              # Standard Python gitignore
@@ -324,7 +338,7 @@ A new log file is created per run, named:
 <logs-dir>/crawler_<domain>_<YYYYMMDDHHMMSS>.log
 ```
 
-Log entries are written both to the file and to the console (`StreamHandler`) at `INFO` level. UTF-8 encoding is enforced on the file handler to support Greek characters.
+Each site gets its own **named logger** (`crawler.<domain>`), so when crawling multiple sites in parallel via `--config`, each site's log output is written to a **separate file** with no cross-contamination. Log entries are written both to the file and to the console (`StreamHandler`) at `INFO` level. UTF-8 encoding is enforced on the file handler to support Greek characters.
 
 Example log output:
 ```
@@ -335,10 +349,24 @@ Example log output:
 
 ---
 
+## Graceful Shutdown
+
+The crawler supports graceful shutdown via `Ctrl+C` (SIGINT):
+
+| Action | Behaviour |
+|---|---|
+| **First `Ctrl+C`** | Sets a shutdown flag. Workers finish their **current in-flight page**, skip remaining queued URLs, and exit cleanly. A log message confirms: *"Shutdown requested. Crawl stopped gracefully."* |
+| **Second `Ctrl+C`** | Restores the default signal handler and exits immediately (hard kill). |
+
+This works for both `--url` (single site) and `--config` (parallel multi-site) modes. Since `crawl-by-config.ps1` runs `python.exe` directly, `Ctrl+C` in the PowerShell window propagates to the Python process automatically.
+
+Pending links remain in the database with `status = 'pending'`, so you can resume with `--resume` after a graceful stop.
+
+---
+
 ## Known Limitations & Future Work
 
 - **Dynamic / JavaScript-Rendered Sites** — The crawler currently performs static HTTP requests. Sites that rely on client-side JavaScript framework rendering (React, Vue, etc.) or load articles dynamically will not have their text contents fully captured. Incorporating a headless browser rendering engine (such as Playwright, Selenium, or Pyppeteer) is a planned feature to handle dynamic web content.
-- **Content Parsing & Text Extraction** — Currently, raw HTML and binary content are saved as-is. To facilitate downstream analysis, a text extraction pipeline should be introduced (e.g., using `BeautifulSoup` text extraction, `trafilatura`, or `newspaper3k`) to isolate the primary article body, headlines, and publication dates while discarding page boilerplate like headers, footers, sidebars, and ads.
 - **Plagiarism & Duplicate Content Detection** — To check if news reports are plagiarized or cover identical stories, extracted article texts can be compared using natural language processing (NLP) and similarity algorithms (such as MinHash/LSH, Cosine Similarity via TF-IDF or word/document embeddings, and sequence alignment).
 - **Link extraction limited to `<a href>`** — `<link>`, `<script src>`, sitemaps, and RSS feeds are not followed.
 
