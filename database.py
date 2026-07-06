@@ -6,17 +6,19 @@ from utils import ensure_directory_exists
 import os
 
 
-def get_database_name(domain, db_dir):
+def get_database_name(domain, db_dir, logger=None):
     """Generate the database filename based on the domain and save it in the specified db directory."""
 
     # Ensure the db directory exists
-    ensure_directory_exists(db_dir)
+    ensure_directory_exists(db_dir, logger=logger)
 
     # Generate the database filename
     return os.path.join(db_dir, f"crawled_data_{domain}.db")
 
-def init_db(database_name):
+def init_db(database_name, logger=None):
     """Initialize the SQLite database and create the table if it doesn't exist."""
+    if logger is None:
+        logger = logging.getLogger(__name__)
     with sqlite3.connect(database_name) as conn:
         cursor = conn.cursor()
         # WAL mode allows concurrent reads during writes — essential for multi-threading
@@ -60,18 +62,20 @@ def init_db(database_name):
         for col_name, col_type in new_columns:
             if col_name not in columns:
                 cursor.execute(f"ALTER TABLE crawled_data ADD COLUMN {col_name} {col_type}")
-                logging.info(f"Added column {col_name} to crawled_data table.")
+                logger.info(f"Added column {col_name} to crawled_data table.")
 
         conn.commit()
 
-def save_links_to_db(database_name, domain, links, robots_parser, status="pending"):
+def save_links_to_db(database_name, domain, links, robots_parser, status="pending", logger=None):
     """Save multiple links to the database in a batch, if allowed by robots.txt."""
+    if logger is None:
+        logger = logging.getLogger(__name__)
     try:
         with sqlite3.connect(database_name) as conn:
             cursor = conn.cursor()
             for link in links:
                 if robots_parser and not robots_parser.can_fetch(USER_AGENT, link):
-                    logging.info(f"Skipping disallowed link: {link}")
+                    logger.info(f"Skipping disallowed link: {link}")
                     continue
 
                 # Check if the link already exists and is pending
@@ -93,7 +97,7 @@ def save_links_to_db(database_name, domain, links, robots_parser, status="pendin
                         """,
                         (datetime.now(), existing_link[0]),
                     )
-                    logging.info(f"Updated date_inserted for pending link: {link}")
+                    logger.info(f"Updated date_inserted for pending link: {link}")
                 else:
                     # Insert the new link
                     cursor.execute(
@@ -103,15 +107,17 @@ def save_links_to_db(database_name, domain, links, robots_parser, status="pendin
                         """,
                         (domain, datetime.now(), link, status),
                     )
-                    logging.info(f"Saved link to database: {link} (status: {status})")
+                    logger.info(f"Saved link to database: {link} (status: {status})")
             conn.commit()  # Commit all changes at once
     except sqlite3.Error as e:
-        logging.error(f"Database error while saving links: {e}")
+        logger.error(f"Database error while saving links: {e}")
 
 def update_link_in_db(database_name, link, content, content_hash, status="crawled",
                       extracted_title=None, extracted_text=None, extracted_authors=None,
-                      extracted_date=None, extracted_keywords=None):
+                      extracted_date=None, extracted_keywords=None, logger=None):
     """Update a link in the database with content, hash, date_crawled, parsed metadata, and mark it with the given status."""
+    if logger is None:
+        logger = logging.getLogger(__name__)
     try:
         with sqlite3.connect(database_name) as conn:
             cursor = conn.cursor()
@@ -128,21 +134,24 @@ def update_link_in_db(database_name, link, content, content_hash, status="crawle
                  extracted_date, extracted_keywords, link),
             )
             conn.commit()
-            logging.info(f"Updated link in database: {link}")
+            logger.info(f"Updated link in database: {link}")
     except sqlite3.Error as e:
-        logging.error(f"Database error while updating link: {e}")
+        logger.error(f"Database error while updating link: {e}")
 
-def load_pending_links(database_name, limit=None):
+def load_pending_links(database_name, limit=None, logger=None):
     """Load pending links from the database.
 
     Args:
         database_name (str): Path to the SQLite database.
         limit (int | None): Maximum number of links to return.
                             Pass None to load all pending links (default behaviour).
+        logger: Optional logger instance. Falls back to module-level logger.
 
     Returns:
         list[str]: List of pending URLs.
     """
+    if logger is None:
+        logger = logging.getLogger(__name__)
     pending_links = []
     try:
         with sqlite3.connect(database_name) as conn:
@@ -155,11 +164,13 @@ def load_pending_links(database_name, limit=None):
             cursor.execute(query, params)
             pending_links = [row[0] for row in cursor.fetchall()]
     except sqlite3.Error as e:
-        logging.error(f"Failed to load pending links from database: {e}")
+        logger.error(f"Failed to load pending links from database: {e}")
     return pending_links
 
-def is_database_empty(database_name):
+def is_database_empty(database_name, logger=None):
     """Check if the database is empty."""
+    if logger is None:
+        logger = logging.getLogger(__name__)
     try:
         with sqlite3.connect(database_name) as conn:
             cursor = conn.cursor()
@@ -167,14 +178,16 @@ def is_database_empty(database_name):
             count = cursor.fetchone()[0]
             return count == 0
     except sqlite3.Error as e:
-        logging.error(f"Failed to check if database is empty: {e}")
+        logger.error(f"Failed to check if database is empty: {e}")
         return True  # Assume empty if there's an error
 
-def check_re_crawl(database_name, link, re_crawl_time):
+def check_re_crawl(database_name, link, re_crawl_time, logger=None):
     """
     Check if a link should be re-crawled based on the re-crawl time.
     Returns True if the link should be re-crawled, False otherwise.
     """
+    if logger is None:
+        logger = logging.getLogger(__name__)
     try:
         with sqlite3.connect(database_name) as conn:
             cursor = conn.cursor()
@@ -193,5 +206,5 @@ def check_re_crawl(database_name, link, re_crawl_time):
                     return False  # Do not re-crawl
             return True  # Re-crawl
     except sqlite3.Error as e:
-        logging.error(f"Failed to check re-crawl status for link {link}: {e}")
+        logger.error(f"Failed to check re-crawl status for link {link}: {e}")
         return True  # Assume re-crawl if there's an error

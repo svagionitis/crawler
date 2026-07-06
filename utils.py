@@ -23,7 +23,7 @@ try:
 except ImportError:
     HAS_NEWSPAPER = False
 
-def fetch_page(url, max_retries=3, initial_timeout=60):
+def fetch_page(url, max_retries=3, initial_timeout=60, logger=None):
     """
     Fetch the content of a web page with retries and exponential backoff.
 
@@ -31,11 +31,14 @@ def fetch_page(url, max_retries=3, initial_timeout=60):
         url (str): The URL to fetch.
         max_retries (int): Maximum number of retries (default: 3).
         initial_timeout (int): Initial timeout in seconds (default: 60).
+        logger: Optional logger instance. Falls back to module-level logger.
 
     Returns:
         tuple: (content, error_description) where content is the page content or None,
                and error_description is an error message or None.
     """
+    if logger is None:
+        logger = logging.getLogger(__name__)
     headers = {"User-Agent": USER_AGENT}
     retry_count = 0
     timeout = initial_timeout
@@ -60,38 +63,40 @@ def fetch_page(url, max_retries=3, initial_timeout=60):
             if status_code == 504:  # Handle 504 Gateway Timeout
                 retry_count += 1
                 if retry_count < max_retries:
-                    logging.warning(f"504 Gateway Timeout for {url}. Retrying in {timeout} seconds... (Attempt {retry_count}/{max_retries})")
+                    logger.warning(f"504 Gateway Timeout for {url}. Retrying in {timeout} seconds... (Attempt {retry_count}/{max_retries})")
                     time.sleep(timeout)  # Wait before retrying
                     timeout *= 2  # Exponential backoff
                 else:
                     error_description = f"504 Gateway Timeout after {max_retries} retries: {e}"
-                    logging.error(f"Failed to fetch {url}: {error_description}")
+                    logger.error(f"Failed to fetch {url}: {error_description}")
                     return None, error_description
             else:
                 error_description = f"HTTP Error {status_code}: {e}"
-                logging.error(f"Failed to fetch {url}: {error_description}")
+                logger.error(f"Failed to fetch {url}: {error_description}")
                 return None, error_description
 
         except requests.exceptions.Timeout as e:
             retry_count += 1
             if retry_count < max_retries:
-                logging.warning(f"Timeout occurred for {url}. Retrying in {timeout} seconds... (Attempt {retry_count}/{max_retries})")
+                logger.warning(f"Timeout occurred for {url}. Retrying in {timeout} seconds... (Attempt {retry_count}/{max_retries})")
                 time.sleep(timeout)  # Wait before retrying
                 timeout *= 2  # Exponential backoff
             else:
                 error_description = f"Timeout after {max_retries} retries: {e}"
-                logging.error(f"Failed to fetch {url}: {error_description}")
+                logger.error(f"Failed to fetch {url}: {error_description}")
                 return None, error_description
 
         except requests.exceptions.RequestException as e:
             error_description = str(e)
-            logging.error(f"Failed to fetch {url}: {error_description}")
+            logger.error(f"Failed to fetch {url}: {error_description}")
             return None, error_description
 
     return None, "Max retries reached without success"
 
-def extract_links(base_url, html_content, robots_parser):
+def extract_links(base_url, html_content, robots_parser, logger=None):
     """Extract all links from the HTML content that belong to the same domain and are allowed by robots.txt."""
+    if logger is None:
+        logger = logging.getLogger(__name__)
     soup = BeautifulSoup(html_content, "html.parser")
     links = set()
     for a_tag in soup.find_all("a", href=True):
@@ -101,22 +106,24 @@ def extract_links(base_url, html_content, robots_parser):
                 if not robots_parser or robots_parser.can_fetch(USER_AGENT, link):
                     links.add(link)
                 else:
-                    logging.info(f"Skipping disallowed link: {link}")
+                    logger.info(f"Skipping disallowed link: {link}")
         except ValueError as e:
-            logging.warning(f"Failed to extract href link: {a_tag["href"]} ({e})")
+            logger.warning(f"Failed to extract href link: {a_tag['href']} ({e})")
     return links
 
 def compute_hash(content):
     """Compute the SHA-256 hash of the content."""
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
-def ensure_directory_exists(directory):
+def ensure_directory_exists(directory, logger=None):
     """Ensure a directory exists. If not, create it."""
+    if logger is None:
+        logger = logging.getLogger(__name__)
     if not os.path.exists(directory):
         os.makedirs(directory)
-        logging.info(f"Created directory: {directory}")
+        logger.info(f"Created directory: {directory}")
 
-def extract_with_newspaper(html_content, url):
+def extract_with_newspaper(html_content, url, logger=None):
     """Extract news article fields using newspaper3k."""
     from newspaper import Article
     article_url = url if url else "https://example.com"
@@ -146,7 +153,7 @@ def extract_with_newspaper(html_content, url):
 
     return title, text, authors, date_str, keywords_str
 
-def extract_with_trafilatura(html_content):
+def extract_with_trafilatura(html_content, logger=None):
     """Extract news article fields using trafilatura."""
     text = trafilatura.extract(html_content, include_comments=False, no_fallback=False)
 
@@ -175,7 +182,7 @@ def extract_with_trafilatura(html_content):
 
     return title, text, authors, date_str, keywords_str
 
-def extract_with_bs4(html_content):
+def extract_with_bs4(html_content, logger=None):
     """Extract news article fields using standard BeautifulSoup (boilerplate removal fallback)."""
     soup = BeautifulSoup(html_content, "html.parser")
 
@@ -231,7 +238,7 @@ def extract_with_bs4(html_content):
 
     return title, text, authors, date_str, keywords_str
 
-def extract_article_content(html_content, url=None, engine="auto"):
+def extract_article_content(html_content, url=None, engine="auto", logger=None):
     """
     Extract the main content and metadata of an article from HTML.
 
@@ -239,10 +246,13 @@ def extract_article_content(html_content, url=None, engine="auto"):
         html_content (str): The HTML content of the page.
         url (str | None): The URL of the page (helps newspaper3k identify details).
         engine (str): The parser engine ('auto', 'newspaper', 'trafilatura', 'bs4').
+        logger: Optional logger instance. Falls back to module-level logger.
 
     Returns:
         dict: A dictionary containing title, text, authors, date, and keywords.
     """
+    if logger is None:
+        logger = logging.getLogger(__name__)
     engine = engine.lower()
 
     if engine == "auto":
@@ -258,34 +268,34 @@ def extract_article_content(html_content, url=None, engine="auto"):
     try:
         if engine == "newspaper":
             if HAS_NEWSPAPER:
-                title, text, authors, date_str, keywords_str = extract_with_newspaper(html_content, url)
+                title, text, authors, date_str, keywords_str = extract_with_newspaper(html_content, url, logger=logger)
             else:
-                logging.warning("newspaper3k is selected but not installed. Falling back to trafilatura or bs4.")
+                logger.warning("newspaper3k is selected but not installed. Falling back to trafilatura or bs4.")
                 if HAS_TRAFILATURA:
-                    title, text, authors, date_str, keywords_str = extract_with_trafilatura(html_content)
+                    title, text, authors, date_str, keywords_str = extract_with_trafilatura(html_content, logger=logger)
                 else:
-                    title, text, authors, date_str, keywords_str = extract_with_bs4(html_content)
+                    title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, logger=logger)
 
         elif engine == "trafilatura":
             if HAS_TRAFILATURA:
-                title, text, authors, date_str, keywords_str = extract_with_trafilatura(html_content)
+                title, text, authors, date_str, keywords_str = extract_with_trafilatura(html_content, logger=logger)
             else:
-                logging.warning("trafilatura is selected but not installed. Falling back to bs4.")
-                title, text, authors, date_str, keywords_str = extract_with_bs4(html_content)
+                logger.warning("trafilatura is selected but not installed. Falling back to bs4.")
+                title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, logger=logger)
 
         elif engine == "bs4":
-            title, text, authors, date_str, keywords_str = extract_with_bs4(html_content)
+            title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, logger=logger)
 
         else:
-            logging.error(f"Unknown parser engine '{engine}'. Falling back to bs4.")
-            title, text, authors, date_str, keywords_str = extract_with_bs4(html_content)
+            logger.error(f"Unknown parser engine '{engine}'. Falling back to bs4.")
+            title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, logger=logger)
 
     except Exception as e:
-        logging.error(f"Error during content extraction with engine {engine}: {e}. Falling back to bs4.")
+        logger.error(f"Error during content extraction with engine {engine}: {e}. Falling back to bs4.")
         try:
-            title, text, authors, date_str, keywords_str = extract_with_bs4(html_content)
+            title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, logger=logger)
         except Exception as e_fallback:
-            logging.error(f"Critical error in fallback bs4 parser: {e_fallback}")
+            logger.error(f"Critical error in fallback bs4 parser: {e_fallback}")
 
     return {
         "title": title.strip() if title else None,
