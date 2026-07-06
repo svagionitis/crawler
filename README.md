@@ -213,9 +213,13 @@ python crawler_app.py \
 
 ---
 
-## PowerShell Helper Script
+## PowerShell Helper Scripts
 
-`scripts/crawl-links.ps1` launches a separate maximised PowerShell window for each configured site, enabling parallel crawls across dozens of Greek and international news outlets simultaneously.
+There are two PowerShell scripts available in the `scripts/` directory:
+
+### Hardcoded Launcher (Parallel)
+
+`scripts/crawl-links.ps1` launches parallel crawls for a hardcoded set of sites, opening each in a separate maximized PowerShell window:
 
 ```powershell
 # Run from the project root
@@ -232,7 +236,22 @@ Each window's title bar shows the URL being crawled. Sites currently configured 
 | cr.yp.to, labtestsonline.org.uk | 30 s | 168 h (weekly) |
 | news.ycombinator.com | 0 s (robots.txt) | 8 h |
 
-> **Tip:** Edit `crawl-links.ps1` to add or remove sites, or adjust delays and re-crawl windows to match each site's terms of service.
+### Config-driven Launcher (Sequential)
+
+`scripts/crawl-by-config.ps1` runs sequential crawls for sites defined in a JSON configuration file inside the current console session. It defaults to `config/news-sites-gr.json` but can accept any custom JSON configuration file via the `-ConfigPath` parameter, and forwards any additional options:
+
+```powershell
+# Run using the default configuration (config/news-sites-gr.json)
+.\scripts\crawl-by-config.ps1
+
+# Run using a custom configuration file
+.\scripts\crawl-by-config.ps1 -ConfigPath config/sites.json
+
+# Run using a custom configuration file and override options
+.\scripts\crawl-by-config.ps1 -ConfigPath config/sites.json --db-dir F:\db
+```
+
+> **Tip:** Edit `config/news-sites-gr.json` or `config/sites.json` to add or remove sites, and use `crawl-by-config.ps1` to run crawls dynamically based on those files.
 
 ---
 

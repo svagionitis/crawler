@@ -1,0 +1,380 @@
+[
+  {
+    "url": "https://www.tovima.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.tanea.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.protothema.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.kathimerini.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.iefimerida.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.in.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.news247.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.documentonews.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.real.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.enikos.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.rizospastis.gr",
+    "respect_robots": true,
+    "crawl_delay": 30,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.zougla.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.koutipandoras.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.ertnews.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.ethnos.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.naftemporiki.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.espressonews.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.dimokratia.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://eleftherostypos.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.makeleio.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.estianews.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.efsyn.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.kontranews.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.newsbomb.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://tomanifesto.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://1voice.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.ekirikas.com",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.iapogevmatini.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.elora.gr/portal",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://ipaper.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.lifo.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://atticatimes.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.skai.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.alphatv.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.alphanews.live",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.antenna.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.megatv.com",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.tvopen.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.star.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.ert.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.inkefalonia.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  },
+  {
+    "url": "https://www.kefaloniapress.gr",
+    "respect_robots": true,
+    "crawl_delay": 15,
+    "resume": true,
+    "re_crawl_time": 24,
+    "logs_dir": "F:\\logs",
+    "db_dir": "F:\\db"
+  }
+]
