@@ -95,7 +95,7 @@ pip install -r requirements.txt
 # Crawl a single website
 python crawler_app.py --url <URL> [OPTIONS]
 
-# Crawl multiple websites sequentially using a JSON configuration file
+# Crawl multiple websites in parallel using a JSON configuration file
 python crawler_app.py --config <PATH_TO_JSON> [OPTIONS]
 ```
 
@@ -118,7 +118,7 @@ python crawler_app.py --config <PATH_TO_JSON> [OPTIONS]
 
 ### Crawling Multiple URLs via JSON Configuration
 
-Instead of crawling a single site via `--url`, you can provide a JSON file containing an array of target site configurations using `--config`.
+Instead of crawling a single site via `--url`, you can provide a JSON file containing an array of target site configurations using `--config`. All sites in the file are crawled **in parallel** — each site runs in its own thread, with its own database and log file.
 
 Each object in the array represents a target site and can override any of the standard crawler settings:
 
@@ -176,7 +176,7 @@ For downstream text similarity, plagiarism checking, or general news analysis, t
 python crawler_app.py --url https://www.example.com
 ```
 
-**Sequential multi-site crawl using a JSON configuration:**
+**Parallel multi-site crawl using a JSON configuration:**
 ```bash
 python crawler_app.py --config config.json --db-dir F:\db --logs-dir F:\logs
 ```
@@ -236,9 +236,9 @@ Each window's title bar shows the URL being crawled. Sites currently configured 
 | cr.yp.to, labtestsonline.org.uk | 30 s | 168 h (weekly) |
 | news.ycombinator.com | 0 s (robots.txt) | 8 h |
 
-### Config-driven Launcher (Sequential)
+### Config-driven Launcher (Parallel)
 
-`scripts/crawl-by-config.ps1` runs sequential crawls for sites defined in a JSON configuration file inside the current console session. It defaults to `config/news-sites-gr.json` but can accept any custom JSON configuration file via the `-ConfigPath` parameter, and forwards any additional options:
+`scripts/crawl-by-config.ps1` passes a JSON configuration file directly to `crawler_app.py --config`, which crawls **all sites in parallel** in the current console session. It defaults to `config/news-sites-gr.json` but accepts any config file via the `-ConfigPath` parameter:
 
 ```powershell
 # Run using the default configuration (config/news-sites-gr.json)
@@ -246,9 +246,6 @@ Each window's title bar shows the URL being crawled. Sites currently configured 
 
 # Run using a custom configuration file
 .\scripts\crawl-by-config.ps1 -ConfigPath config/sites.json
-
-# Run using a custom configuration file and override options
-.\scripts\crawl-by-config.ps1 -ConfigPath config/sites.json --db-dir F:\db
 ```
 
 > **Tip:** Edit `config/news-sites-gr.json` or `config/sites.json` to add or remove sites, and use `crawl-by-config.ps1` to run crawls dynamically based on those files.

@@ -372,40 +372,55 @@ def main():
             if "url" not in site:
                 parser.error(f"Item at index {i} in configuration file is missing the required 'url' field.")
 
-        # Run sequential crawls for each site configuration
+        # Build the per-site argument sets
+        site_configs = []
         for site in config_data:
-            url = site["url"]
-            respect_robots = site.get("respect_robots", args.respect_robots)
-            no_duplicates = site.get("no_duplicates", args.no_duplicates)
-            crawl_delay = site.get("crawl_delay", args.crawl_delay)
-            resume = site.get("resume", args.resume)
-            re_crawl_time = site.get("re_crawl_time", args.re_crawl_time)
-            logs_dir = site.get("logs_dir", args.logs_dir)
-            db_dir = site.get("db_dir", args.db_dir)
-            batch_size = site.get("batch_size", args.batch_size)
-            workers = site.get("workers", args.workers)
-            parser_engine = site.get("parser", args.parser)
+            site_configs.append({
+                "start_url":     site["url"],
+                "respect_robots": site.get("respect_robots", args.respect_robots),
+                "no_duplicates":  site.get("no_duplicates",  args.no_duplicates),
+                "crawl_delay":    site.get("crawl_delay",    args.crawl_delay),
+                "resume":         site.get("resume",         args.resume),
+                "re_crawl_time":  site.get("re_crawl_time",  args.re_crawl_time),
+                "logs_dir":       site.get("logs_dir",       args.logs_dir),
+                "db_dir":         site.get("db_dir",         args.db_dir),
+                "batch_size":     site.get("batch_size",     args.batch_size),
+                "workers":        site.get("workers",        args.workers),
+                "parser_engine":  site.get("parser",         args.parser),
+            })
 
-            print(f"\n=== Starting crawl for: {url} ===")
+        def _crawl_site_task(cfg):
+            """Thread entry point: crawl one site and return its URL."""
+            print(f"\n=== Starting crawl for: {cfg['start_url']} ===")
             try:
-                crawl_site(
-                    start_url=url,
-                    respect_robots=respect_robots,
-                    no_duplicates=no_duplicates,
-                    crawl_delay=crawl_delay,
-                    resume=resume,
-                    re_crawl_time=re_crawl_time,
-                    logs_dir=logs_dir,
-                    db_dir=db_dir,
-                    batch_size=batch_size,
-                    workers=workers,
-                    parser_engine=parser_engine,
-                )
+                crawl_site(**cfg)
             except (KeyboardInterrupt, SystemExit):
-                print("\nCrawl execution interrupted by user. Exiting.")
                 raise
             except Exception as e:
-                logging.error(f"Failed to crawl site {url}: {e}", exc_info=True)
+                logging.error(
+                    f"Failed to crawl site {cfg['start_url']}: {e}", exc_info=True
+                )
+            return cfg["start_url"]
+
+        # Run all site crawls in parallel — each site has its own DB and log
+        # file so there is no shared mutable state between threads at this level.
+        print(f"\nLaunching {len(site_configs)} site crawl(s) in parallel...")
+        with ThreadPoolExecutor(max_workers=len(site_configs)) as site_executor:
+            site_futures = {
+                site_executor.submit(_crawl_site_task, cfg): cfg["start_url"]
+                for cfg in site_configs
+            }
+            for future in as_completed(site_futures):
+                url = site_futures[future]
+                try:
+                    future.result()
+                    print(f"\n=== Crawl finished for: {url} ===")
+                except (KeyboardInterrupt, SystemExit):
+                    print("\nCrawl execution interrupted by user. Exiting.")
+                    raise
+                except Exception as e:
+                    logging.error(f"Unhandled error for {url}: {e}", exc_info=True)
+
 
 if __name__ == "__main__":
     main()
