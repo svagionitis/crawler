@@ -86,10 +86,40 @@ def fetch_page(url, max_retries=3, initial_timeout=60, logger=None):
                 logger.error(f"Failed to fetch {url}: {error_description}")
                 return None, error_description
 
+        except requests.exceptions.SSLError as e:
+            # Transient SSL failures (e.g. UNEXPECTED_EOF_WHILE_READING) — the
+            # server dropped the connection during the TLS handshake or transfer.
+            # These are retriable; hard certificate errors also surface here but
+            # are unlikely to succeed on retry, so we still cap at max_retries.
+            retry_count += 1
+            if retry_count < max_retries:
+                logger.warning(f"SSL error for {url}. Retrying in {timeout} seconds... (Attempt {retry_count}/{max_retries})")
+                time.sleep(timeout)
+                timeout *= 2
+            else:
+                error_description = f"SSL error after {max_retries} retries: {e}"
+                logger.error(f"Failed to fetch {url}: {error_description}")
+                return None, error_description
+
+        except requests.exceptions.ConnectionError as e:
+            # Server reset the connection, refused it, or the network dropped.
+            # Typically transient — worth a few retries with backoff.
+            retry_count += 1
+            if retry_count < max_retries:
+                logger.warning(f"Connection error for {url}. Retrying in {timeout} seconds... (Attempt {retry_count}/{max_retries})")
+                time.sleep(timeout)
+                timeout *= 2
+            else:
+                error_description = f"Connection error after {max_retries} retries: {e}"
+                logger.error(f"Failed to fetch {url}: {error_description}")
+                return None, error_description
+
         except requests.exceptions.RequestException as e:
+            # Non-retriable errors (e.g. invalid URL, DNS resolution failure).
             error_description = str(e)
             logger.error(f"Failed to fetch {url}: {error_description}")
             return None, error_description
+
 
     return None, "Max retries reached without success"
 
