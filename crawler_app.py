@@ -131,7 +131,7 @@ class SiteCrawler:
         """Crawl a single page, fetch content, check for duplicates, and save data.
 
         Returns:
-            tuple: (content, new_links, action)
+            tuple: (success, new_links, action)
         """
         # Check robots.txt
         if self.robots_parser and not self.robots_parser.can_fetch(USER_AGENT, current_url):
@@ -170,6 +170,9 @@ class SiteCrawler:
         else:
             extracted = {"title": None, "text": None, "authors": None, "date": None, "keywords": None, "parser_used": None}
 
+        # Memory Optimization: Free the heavy BeautifulSoup parse tree immediately
+        soup = None
+
         update_link_in_db(
             self.database_name, current_url, content, content_hash, status="crawled",
             extracted_title=extracted["title"],
@@ -180,6 +183,10 @@ class SiteCrawler:
             parser_used=extracted["parser_used"],
             logger=self.logger
         )
+
+        # Memory Optimization: Free the raw content string immediately after saving it to the DB
+        content_fetched = content is not None
+        content = None
 
         if extracted.get("text"):
             try:
@@ -200,7 +207,7 @@ class SiteCrawler:
             except Exception as e:
                 self.logger.error(f"Error checking similarity for {current_url}: {e}")
 
-        return content, new_links, None
+        return content_fetched, new_links, None
 
     def crawl_worker(self, current_url):
         """Fetch a single URL, save content, and enqueue discovered links.
@@ -211,11 +218,11 @@ class SiteCrawler:
         if self.shutdown_event.is_set():
             return current_url
 
-        content, new_links, action = self.crawl_page(current_url)
-        if content and action is None:
+        success, new_links, action = self.crawl_page(current_url)
+        if success and action is None:
             if new_links:
                 save_links_to_db(self.database_name, self.domain, list(new_links), self.robots_parser, re_crawl_time=self.re_crawl_time, logger=self.logger)
-        elif content is None and action:
+        elif not success and action:
             # Robot skip — no network request was made, skip delay
             return current_url
 
