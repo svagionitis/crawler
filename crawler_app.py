@@ -13,7 +13,8 @@ from database import init_db, save_links_to_db, update_link_in_db, \
     is_duplicate_content
 from utils import fetch_page, extract_links, compute_hash, ensure_directory_exists, extract_article_content
 from bs4 import BeautifulSoup
-from config import USER_AGENT, NORMALIZE_WHITESPACE
+from config import USER_AGENT, NORMALIZE_WHITESPACE, PLAGIARISM_INDEX_DB, PLAGIARISM_THRESHOLD
+from similarity import SimilarityIndexer
 from datetime import datetime
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -41,7 +42,8 @@ class SiteCrawler:
     def __init__(self, start_url, respect_robots=True, no_duplicates=True,
                  crawl_delay=30, resume=False, re_crawl_time=3,
                  logs_dir="logs", db_dir="db", batch_size=100,
-                 workers=1, parser_engine="auto", normalize_whitespace=True):
+                 workers=1, parser_engine="auto", normalize_whitespace=True,
+                 plagiarism_db=None, plagiarism_threshold=0.8):
         self.start_url = start_url
         self.respect_robots = respect_robots
         self.no_duplicates = no_duplicates
@@ -54,6 +56,8 @@ class SiteCrawler:
         self.workers = workers
         self.parser_engine = parser_engine
         self.normalize_whitespace = normalize_whitespace
+        self.plagiarism_db = plagiarism_db
+        self.plagiarism_threshold = plagiarism_threshold
 
         self.domain = urlparse(start_url).netloc
         self.database_name = get_database_name(self.domain, self.db_dir)
@@ -113,7 +117,8 @@ class SiteCrawler:
                     self.logger.info(f"Using crawl delay from robots.txt: {self.crawl_delay} seconds")
             except Exception as e:
                 self.logger.warning(f"Failed to read robots.txt: {e}")
-
+        # Initialize central similarity database and indexer
+        self.indexer = SimilarityIndexer(self.plagiarism_db, logger=self.logger)
     def prepare_queue(self):
         """Seed the database queue with the start URL when not resuming."""
         if self.resume and not is_database_empty(self.database_name, logger=self.logger):
@@ -175,6 +180,23 @@ class SiteCrawler:
             parser_used=extracted["parser_used"],
             logger=self.logger
         )
+
+        if extracted.get("text"):
+            # Check for plagiarism / near-duplicates against the central index
+            matches = self.indexer.index_and_check(
+                url=current_url,
+                domain=self.domain,
+                title=extracted["title"] or "",
+                html_content=content,
+                extracted_text=extracted["text"],
+                date_crawled=datetime.now(),
+                threshold=self.plagiarism_threshold
+            )
+            for match in matches:
+                self.logger.warning(
+                    f"🚨 Plagiarism/Duplicate Detected! {current_url} is "
+                    f"{match['score']*100:.1f}% similar to {match['url']} ({match['title']})"
+                )
 
         return content, new_links, None
 
@@ -458,6 +480,18 @@ def main():
         help="Preserve raw whitespaces (newlines, tabs) in the extracted text.",
     )
     parser.set_defaults(normalize_whitespace=NORMALIZE_WHITESPACE)
+    parser.add_argument(
+        "--plagiarism-db",
+        type=str,
+        default=PLAGIARISM_INDEX_DB,
+        help="Path to the central similarity index SQLite database (default: db/plagiarism_index.db).",
+    )
+    parser.add_argument(
+        "--plagiarism-threshold",
+        type=float,
+        default=PLAGIARISM_THRESHOLD,
+        help="Similarity threshold (0.0 to 1.0) above which articles are flagged as plagiarized/near-duplicates (default: 0.8).",
+    )
     args = parser.parse_args()
 
     # Validate mutual exclusivity of --url and --config
@@ -480,7 +514,9 @@ def main():
             batch_size=args.batch_size,
             workers=args.workers,
             parser_engine=args.parser,
-            normalize_whitespace=args.normalize_whitespace
+            normalize_whitespace=args.normalize_whitespace,
+            plagiarism_db=args.plagiarism_db,
+            plagiarism_threshold=args.plagiarism_threshold
         )
         crawler.crawl()
     else:
@@ -491,10 +527,25 @@ def main():
         except Exception as e:
             parser.error(f"Failed to read or parse configuration file: {e}")
 
-        if not isinstance(config_data, list):
-            parser.error("Configuration file must contain a JSON array of objects.")
+        # Support both plain list structure and object with outer metadata structure
+        plagiarism_db = args.plagiarism_db
+        plagiarism_threshold = args.plagiarism_threshold
+        sites_list = []
 
-        for i, site in enumerate(config_data):
+        if isinstance(config_data, list):
+            sites_list = config_data
+        elif isinstance(config_data, dict):
+            if "plagiarism_db" in config_data:
+                plagiarism_db = config_data["plagiarism_db"]
+            if "plagiarism_threshold" in config_data:
+                plagiarism_threshold = config_data["plagiarism_threshold"]
+            sites_list = config_data.get("sites", [])
+            if not isinstance(sites_list, list):
+                parser.error("Configuration 'sites' field must be a JSON array of objects.")
+        else:
+            parser.error("Configuration file must contain a JSON array or a JSON object with a 'sites' array.")
+
+        for i, site in enumerate(sites_list):
             if not isinstance(site, dict):
                 parser.error(f"Item at index {i} in configuration file is not a JSON object.")
             if "url" not in site:
@@ -502,7 +553,7 @@ def main():
 
         # Build the per-site crawler instances
         crawlers = []
-        for site in config_data:
+        for site in sites_list:
             crawler = SiteCrawler(
                 start_url=site["url"],
                 respect_robots=site.get("respect_robots", args.respect_robots),
@@ -515,7 +566,9 @@ def main():
                 batch_size=site.get("batch_size", args.batch_size),
                 workers=site.get("workers", args.workers),
                 parser_engine=site.get("parser", args.parser),
-                normalize_whitespace=site.get("normalize_whitespace", args.normalize_whitespace)
+                normalize_whitespace=site.get("normalize_whitespace", args.normalize_whitespace),
+                plagiarism_db=plagiarism_db,
+                plagiarism_threshold=plagiarism_threshold
             )
             crawlers.append(crawler)
 

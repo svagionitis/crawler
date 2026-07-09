@@ -173,12 +173,42 @@ python crawler_app.py --config <PATH_TO_JSON> [OPTIONS]
 | `--workers` | `int` | `1` | Number of parallel worker threads. The crawl delay is automatically scaled by this factor to maintain the aggregate request rate to the server, and forced to 1 if a `robots.txt` crawl delay is applied. |
 | `--parser` | `str` | `auto` | Parsing engine for content & text extraction (`auto`, `newspaper`, `trafilatura`, `bs4`). |
 | `--no-normalize-whitespace` | flag | `False` | Preserve raw whitespaces (newlines, tabs) in the extracted text instead of collapsing them into a single space. |
+| `--plagiarism-db` | `str` | `db/plagiarism_index.db` | Path to the central similarity index SQLite database. |
+| `--plagiarism-threshold` | `float` | `0.8` | Similarity Jaccard threshold (0.0 to 1.0) above which articles are flagged as plagiarism/near-duplicates. |
+
 
 ### Crawling Multiple URLs via JSON Configuration
 
-Instead of crawling a single site via `--url`, you can provide a JSON file containing an array of target site configurations using `--config`. All sites in the file are crawled **in parallel** — each site runs in its own thread, with its own database and log file.
+Instead of crawling a single site via `--url`, you can provide a JSON file containing target site configurations using `--config`. All sites in the file are crawled **in parallel** — each site runs in its own thread, with its own database and log file.
 
-Each object in the array represents a target site and can override any of the standard crawler settings:
+The configuration file supports two formats:
+
+#### 1. Metadata Object Format (Recommended for Plagiarism/Similarity Checks)
+This format defines global plagiarism settings at the top level, applying them uniformly to all sites inside the `sites` array:
+
+```json
+{
+  "plagiarism_db": "F:\\db\\plagiarism_index.db",
+  "plagiarism_threshold": 0.8,
+  "sites": [
+    {
+      "url": "https://news.ycombinator.com",
+      "respect_robots": true,
+      "crawl_delay": 5,
+      "re_crawl_time": 8
+    },
+    {
+      "url": "https://www.tovima.gr",
+      "respect_robots": true,
+      "crawl_delay": 15,
+      "re_crawl_time": 24
+    }
+  ]
+}
+```
+
+#### 2. Plain List Format
+A simplified format consisting of a plain JSON array of site objects:
 
 ```json
 [
@@ -186,8 +216,7 @@ Each object in the array represents a target site and can override any of the st
     "url": "https://news.ycombinator.com",
     "respect_robots": true,
     "crawl_delay": 5,
-    "re_crawl_time": 8,
-    "workers": 2
+    "re_crawl_time": 8
   },
   {
     "url": "https://www.tovima.gr",
