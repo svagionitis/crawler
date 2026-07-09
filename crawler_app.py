@@ -202,13 +202,9 @@ def crawl_worker(database_name, current_url, robots_parser, no_duplicates,
         return current_url
 
     # Respect the crawl delay after every real network request.
-    # Sleep in small intervals so we can react to shutdown_event quickly.
+    # Event.wait() blocks efficiently and wakes up instantly if a shutdown is requested.
     logger.info(f"Waiting for {crawl_delay} seconds before the next request...")
-    remaining = crawl_delay
-    while remaining > 0 and not shutdown_event.is_set():
-        chunk = min(remaining, 0.5)
-        time.sleep(chunk)
-        remaining -= chunk
+    shutdown_event.wait(crawl_delay)
     return current_url
 def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume,
                re_crawl_time, logs_dir, db_dir, batch_size, workers, parser_engine="auto"):
