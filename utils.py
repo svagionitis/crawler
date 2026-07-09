@@ -150,8 +150,16 @@ def extract_links(base_url, html_content, robots_parser, soup=None, logger=None)
     return links
 
 def compute_hash(content):
-    """Compute the SHA-256 hash of the content."""
-    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+    """Compute the SHA-256 hash of the content, chunking large strings to minimize peak memory usage."""
+    h = hashlib.sha256()
+    if isinstance(content, bytes):
+        h.update(content)
+    elif isinstance(content, str):
+        # Encode in 64KB chunks to avoid duplicating the entire content string in memory
+        chunk_size = 65536
+        for i in range(0, len(content), chunk_size):
+            h.update(content[i : i + chunk_size].encode("utf-8"))
+    return h.hexdigest()
 
 def ensure_directory_exists(directory, logger=None):
     """Ensure a directory exists. If not, create it."""
