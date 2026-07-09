@@ -188,7 +188,6 @@ class SiteCrawler:
                     url=current_url,
                     domain=self.domain,
                     title=extracted["title"] or "",
-                    html_content=content,
                     extracted_text=extracted["text"],
                     date_crawled=datetime.now(),
                     threshold=self.plagiarism_threshold

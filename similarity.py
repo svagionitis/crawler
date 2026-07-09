@@ -33,13 +33,24 @@ def init_similarity_db(db_path, logger=None):
                 domain TEXT NOT NULL,
                 url TEXT UNIQUE NOT NULL,
                 title TEXT,
-                html_content TEXT,
-                extracted_text TEXT,
                 date_crawled DATETIME,
                 date_inserted DATETIME DEFAULT CURRENT_TIMESTAMP,
                 text_signature BLOB NOT NULL
             )
         """)
+
+        # Migration: drop legacy html_content and extracted_text columns if they exist.
+        # These duplicated data already stored in per-domain crawled_data DBs.
+        cursor.execute("PRAGMA table_info(global_signatures)")
+        existing_cols = {row[1] for row in cursor.fetchall()}
+        for col in ("html_content", "extracted_text"):
+            if col in existing_cols:
+                try:
+                    cursor.execute(f"ALTER TABLE global_signatures DROP COLUMN {col}")
+                    logger.info(f"Migration: dropped unused column '{col}' from global_signatures.")
+                except sqlite3.OperationalError:
+                    # SQLite < 3.35.0 does not support DROP COLUMN — leave in place.
+                    logger.warning(f"Migration: could not drop column '{col}' (SQLite too old). Column will be ignored.")
         # Create matching pair references
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS plagiarism_matches (
@@ -148,7 +159,6 @@ def _similarity_worker_loop(db_path, job_queue):
             url = job["url"]
             domain = job["domain"]
             title = job["title"]
-            html_content = job["html_content"]
             extracted_text = job["extracted_text"]
             date_crawled = job["date_crawled"]
             threshold = job["threshold"]
@@ -194,11 +204,11 @@ def _similarity_worker_loop(db_path, job_queue):
                                 "score": score
                             })
 
-                # Save the new signature and clean text + html to global index database
+                # Save the new signature to global index database
                 conn.execute("""
-                    INSERT OR REPLACE INTO global_signatures (domain, url, title, html_content, extracted_text, date_crawled, text_signature)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (domain, url, title, html_content, extracted_text, date_crawled, sig))
+                    INSERT OR REPLACE INTO global_signatures (domain, url, title, date_crawled, text_signature)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (domain, url, title, date_crawled, sig))
 
                 # Delete existing LSH bands for this URL and write new ones
                 conn.execute("DELETE FROM lsh_buckets WHERE url = ?", (url,))
@@ -259,7 +269,7 @@ class SimilarityIndexer:
                     _active_workers[self.db_path] = (job_queue, t)
                 self.queue = _active_workers[self.db_path][0]
 
-    def index_and_check(self, url, domain, title, html_content, extracted_text, date_crawled, threshold=0.8):
+    def index_and_check(self, url, domain, title, extracted_text, date_crawled, threshold=0.8):
         """Index the text signature and find existing matches above the similarity threshold.
 
         Returns:
@@ -310,11 +320,11 @@ class SimilarityIndexer:
                                 "score": score
                             })
 
-                # Save the new signature and clean text + html to global index database
+                # Save the new signature to global index database
                 conn.execute("""
-                    INSERT OR REPLACE INTO global_signatures (domain, url, title, html_content, extracted_text, date_crawled, text_signature)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (domain, url, title, html_content, extracted_text, date_crawled, sig))
+                    INSERT OR REPLACE INTO global_signatures (domain, url, title, date_crawled, text_signature)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (domain, url, title, date_crawled, sig))
 
                 # Delete existing LSH bands for this URL and write new ones
                 conn.execute("DELETE FROM lsh_buckets WHERE url = ?", (url,))
@@ -335,7 +345,6 @@ class SimilarityIndexer:
                 "url": url,
                 "domain": domain,
                 "title": title,
-                "html_content": html_content,
                 "extracted_text": extracted_text,
                 "date_crawled": date_crawled,
                 "threshold": threshold,
