@@ -24,6 +24,17 @@ def get_connection(database_name):
     return _local.connections[database_name]
 
 
+def close_thread_connections():
+    """Close all SQLite connections cached in the current thread's local storage."""
+    if hasattr(_local, "connections"):
+        for db_name, conn in list(_local.connections.items()):
+            try:
+                conn.close()
+            except Exception:
+                pass
+        _local.connections.clear()
+
+
 
 def get_database_name(domain, db_dir, logger=None):
     """Generate the database filename based on the domain and save it in the specified db directory."""

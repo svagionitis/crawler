@@ -113,103 +113,107 @@ def calculate_similarity(sig1_blob, sig2_blob, num_permutations=128):
 
 def _similarity_worker_loop(db_path, job_queue):
     """Background worker thread that processes central similarity requests sequentially to avoid lock contention."""
-    conn = get_connection(db_path)
-    while True:
-        job = job_queue.get()
-        if job is None:
-            job_queue.task_done()
-            break
+    from database import close_thread_connections
+    try:
+        conn = get_connection(db_path)
+        while True:
+            job = job_queue.get()
+            if job is None:
+                job_queue.task_done()
+                break
 
-        try:
-            url = job["url"]
-            domain = job["domain"]
-            title = job["title"]
-            extracted_text = job["extracted_text"]
-            date_crawled = job["date_crawled"]
-            threshold = job["threshold"]
-            logger = logging.getLogger(job["logger_name"])
-
-            sig = compute_minhash(extracted_text)
-            sig_integers = struct.unpack('<128I', sig)
-            bands = []
-            for i in range(16):
-                band_ints = sig_integers[i * 8 : (i + 1) * 8]
-                band_hash = hashlib.md5(struct.pack('<8I', *band_ints)).hexdigest()
-                bands.append((i, band_hash))
-
-            # Query candidate signatures that share at least one LSH bucket (band collision)
-            clauses = ["(l.band_id = ? AND l.bucket_hash = ?)"] * len(bands)
-            query_where = " OR ".join(clauses)
-            sql = f"""
-                SELECT DISTINCT g.url, g.domain, g.title, g.date_crawled, g.text_signature
-                FROM global_signatures g
-                JOIN lsh_buckets l ON g.url = l.url
-                WHERE g.url != ? AND ({query_where})
-            """
-            params = [url]
-            for band_id, band_hash in bands:
-                params.extend([band_id, band_hash])
-
-            matches = []
-            with conn:
-                cursor = conn.execute(sql, tuple(params))
-
-                while True:
-                    rows = cursor.fetchmany(1000)
-                    if not rows:
-                        break
-                    for other_url, other_domain, other_title, other_date, other_sig in rows:
-                        score = calculate_similarity(sig, other_sig)
-                        if score >= threshold:
-                            matches.append({
-                                "url": other_url,
-                                "domain": other_domain,
-                                "title": other_title,
-                                "date_crawled": other_date,
-                                "score": score
-                            })
-
-                # Save the new signature to global index database
-                conn.execute("""
-                    INSERT OR REPLACE INTO global_signatures (domain, url, title, date_crawled, text_signature)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (domain, url, title, date_crawled, sig))
-
-                # Delete existing LSH bands for this URL and write new ones
-                conn.execute("DELETE FROM lsh_buckets WHERE url = ?", (url,))
-                band_rows = [(band_id, band_hash, url) for band_id, band_hash in bands]
-                conn.executemany("""
-                    INSERT INTO lsh_buckets (band_id, bucket_hash, url)
-                    VALUES (?, ?, ?)
-                """, band_rows)
-
-                # Record plagiarism matching pairs
-                for match in matches:
-                    conn.execute("""
-                        INSERT OR IGNORE INTO plagiarism_matches (source_url, target_url, similarity_score, match_type)
-                        VALUES (?, ?, ?, ?)
-                    """, (url, match["url"], match["score"], "near_duplicate"))
-
-            # Log any detected duplicate warnings
-            for match in matches:
-                logger.warning(
-                    f"🚨 Plagiarism/Duplicate Detected! {url} is "
-                    f"{match['score']*100:.1f}% similar to {match['url']} ({match['title']})"
-                )
-
-        except Exception as e:
-            # Attempt to retrieve the job's logger for context, otherwise fallback to the module-level logger
-            thread_logger = None
             try:
-                if 'job' in locals() and isinstance(job, dict) and "logger_name" in job:
-                    thread_logger = logging.getLogger(job["logger_name"])
-            except Exception:
-                pass
-            if thread_logger is None:
-                thread_logger = logging.getLogger(__name__)
-            thread_logger.error(f"Error in similarity indexing background thread for {db_path}: {e}")
-        finally:
-            job_queue.task_done()
+                url = job["url"]
+                domain = job["domain"]
+                title = job["title"]
+                extracted_text = job["extracted_text"]
+                date_crawled = job["date_crawled"]
+                threshold = job["threshold"]
+                logger = logging.getLogger(job["logger_name"])
+
+                sig = compute_minhash(extracted_text)
+                sig_integers = struct.unpack('<128I', sig)
+                bands = []
+                for i in range(16):
+                    band_ints = sig_integers[i * 8 : (i + 1) * 8]
+                    band_hash = hashlib.md5(struct.pack('<8I', *band_ints)).hexdigest()
+                    bands.append((i, band_hash))
+
+                # Query candidate signatures that share at least one LSH bucket (band collision)
+                clauses = ["(l.band_id = ? AND l.bucket_hash = ?)"] * len(bands)
+                query_where = " OR ".join(clauses)
+                sql = f"""
+                    SELECT DISTINCT g.url, g.domain, g.title, g.date_crawled, g.text_signature
+                    FROM global_signatures g
+                    JOIN lsh_buckets l ON g.url = l.url
+                    WHERE g.url != ? AND ({query_where})
+                """
+                params = [url]
+                for band_id, band_hash in bands:
+                    params.extend([band_id, band_hash])
+
+                matches = []
+                with conn:
+                    cursor = conn.execute(sql, tuple(params))
+
+                    while True:
+                        rows = cursor.fetchmany(1000)
+                        if not rows:
+                            break
+                        for other_url, other_domain, other_title, other_date, other_sig in rows:
+                            score = calculate_similarity(sig, other_sig)
+                            if score >= threshold:
+                                matches.append({
+                                    "url": other_url,
+                                    "domain": other_domain,
+                                    "title": other_title,
+                                    "date_crawled": other_date,
+                                    "score": score
+                                })
+
+                    # Save the new signature to global index database
+                    conn.execute("""
+                        INSERT OR REPLACE INTO global_signatures (domain, url, title, date_crawled, text_signature)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (domain, url, title, date_crawled, sig))
+
+                    # Delete existing LSH bands for this URL and write new ones
+                    conn.execute("DELETE FROM lsh_buckets WHERE url = ?", (url,))
+                    band_rows = [(band_id, band_hash, url) for band_id, band_hash in bands]
+                    conn.executemany("""
+                        INSERT INTO lsh_buckets (band_id, bucket_hash, url)
+                        VALUES (?, ?, ?)
+                    """, band_rows)
+
+                    # Record plagiarism matching pairs
+                    for match in matches:
+                        conn.execute("""
+                            INSERT OR IGNORE INTO plagiarism_matches (source_url, target_url, similarity_score, match_type)
+                            VALUES (?, ?, ?, ?)
+                        """, (url, match["url"], match["score"], "near_duplicate"))
+
+                # Log any detected duplicate warnings
+                for match in matches:
+                    logger.warning(
+                        f"🚨 Plagiarism/Duplicate Detected! {url} is "
+                        f"{match['score']*100:.1f}% similar to {match['url']} ({match['title']})"
+                    )
+
+            except Exception as e:
+                # Attempt to retrieve the job's logger for context, otherwise fallback to the module-level logger
+                thread_logger = None
+                try:
+                    if 'job' in locals() and isinstance(job, dict) and "logger_name" in job:
+                        thread_logger = logging.getLogger(job["logger_name"])
+                except Exception:
+                    pass
+                if thread_logger is None:
+                    thread_logger = logging.getLogger(__name__)
+                thread_logger.error(f"Error in similarity indexing background thread for {db_path}: {e}")
+            finally:
+                job_queue.task_done()
+    finally:
+        close_thread_connections()
 
 
 class SimilarityIndexer:

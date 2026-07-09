@@ -238,78 +238,85 @@ class SiteCrawler:
         and push them onto the thread-safe queue. This acts as the Producer.
         """
         self.logger.info("Starting database queue feeder thread.")
+        from database import close_thread_connections
 
-        while not self.shutdown_event.is_set():
-            # Check how many items are currently buffered in the queue.
-            # We want to maintain a healthy backlog without filling memory.
-            current_queued = q.qsize()
-            target_fill = self.batch_size * 2
+        try:
+            while not self.shutdown_event.is_set():
+                # Check how many items are currently buffered in the queue.
+                # We want to maintain a healthy backlog without filling memory.
+                current_queued = q.qsize()
+                target_fill = self.batch_size * 2
 
-            # If the queue buffer drops below self.batch_size, fetch more URLs.
-            if current_queued < self.batch_size:
-                limit = target_fill - current_queued
-                try:
-                    # Query SQLite for the next batch of pending URLs.
-                    batch = load_pending_links(self.database_name, self.re_crawl_time, limit=limit, logger=self.logger)
-                except Exception as e:
-                    self.logger.error(f"Error querying pending links from database: {e}")
-                    batch = []
+                # If the queue buffer drops below self.batch_size, fetch more URLs.
+                if current_queued < self.batch_size:
+                    limit = target_fill - current_queued
+                    try:
+                        # Query SQLite for the next batch of pending URLs.
+                        batch = load_pending_links(self.database_name, self.re_crawl_time, limit=limit, logger=self.logger)
+                    except Exception as e:
+                        self.logger.error(f"Error querying pending links from database: {e}")
+                        batch = []
 
-                # Filter out URLs that are already queued/in-flight to avoid duplicate crawling.
-                # Use a lock to ensure thread safety when reading/writing to self._queued_urls.
-                new_urls = []
-                with self._queue_lock:
-                    for url in batch:
-                        if url not in self._queued_urls:
-                            self._queued_urls.add(url)
-                            new_urls.append(url)
-
-                # Push the filtered new URLs into the queue.
-                if new_urls:
-                    for url in new_urls:
-                        q.put(url)
-                    self.logger.info(f"Queued {len(new_urls)} new URLs. Queue size: {q.qsize()}")
-                else:
-                    # If no new links are found in the database, check if any URLs are still being processed.
-                    # If all queued/in-flight URLs are finished, and database has no more URLs, crawling is complete.
+                    # Filter out URLs that are already queued/in-flight to avoid duplicate crawling.
+                    # Use a lock to ensure thread safety when reading/writing to self._queued_urls.
+                    new_urls = []
                     with self._queue_lock:
-                        if not self._queued_urls:
-                            self.logger.info("No pending links remaining and all workers finished. Crawl complete.")
-                            self.shutdown_event.set()  # Signal workers and main thread to exit
-                            break
+                        for url in batch:
+                            if url not in self._queued_urls:
+                                self._queued_urls.add(url)
+                                new_urls.append(url)
 
-            # Sleep briefly (0.5s) to avoid pegging CPU/Database when the queue is full.
-            # Event.wait(timeout) is used here because it is a non-blocking interruptible sleep.
-            # If shutdown_event is set during this sleep, it wakes up instantly instead of waiting out the timeout.
-            self.shutdown_event.wait(timeout=0.5)
+                    # Push the filtered new URLs into the queue.
+                    if new_urls:
+                        for url in new_urls:
+                            q.put(url)
+                        self.logger.info(f"Queued {len(new_urls)} new URLs. Queue size: {q.qsize()}")
+                    else:
+                        # If no new links are found in the database, check if any URLs are still being processed.
+                        # If all queued/in-flight URLs are finished, and database has no more URLs, crawling is complete.
+                        with self._queue_lock:
+                            if not self._queued_urls:
+                                self.logger.info("No pending links remaining and all workers finished. Crawl complete.")
+                                self.shutdown_event.set()  # Signal workers and main thread to exit
+                                break
 
-        self.logger.info("Database queue feeder thread stopped.")
+                # Sleep briefly (0.5s) to avoid pegging CPU/Database when the queue is full.
+                # Event.wait(timeout) is used here because it is a non-blocking interruptible sleep.
+                # If shutdown_event is set during this sleep, it wakes up instantly instead of waiting out the timeout.
+                self.shutdown_event.wait(timeout=0.5)
+        finally:
+            close_thread_connections()
+            self.logger.info("Database queue feeder thread stopped.")
 
     def _worker_loop(self, q):
         """Persistent worker thread loop that pulls URLs from the queue and processes them.
 
         This acts as the Consumer. These threads run continuously until shutdown.
         """
-        while not self.shutdown_event.is_set():
-            try:
-                # Retrieve a URL from the queue. Timeout of 1.0s ensures that workers
-                # periodically unblock to check if a shutdown has been requested.
-                url = q.get(timeout=1.0)
-            except queue.Empty:
-                continue
+        from database import close_thread_connections
+        try:
+            while not self.shutdown_event.is_set():
+                try:
+                    # Retrieve a URL from the queue. Timeout of 1.0s ensures that workers
+                    # periodically unblock to check if a shutdown has been requested.
+                    url = q.get(timeout=1.0)
+                except queue.Empty:
+                    continue
 
-            try:
-                # Execute the crawl, page fetch, parsing, and link extraction.
-                self.crawl_worker(url)
-            except Exception as e:
-                self.logger.error(f"Critical error during crawl execution for {url}: {e}")
-            finally:
-                # Mark the item as done to update the queue's task tracker.
-                # Remove the URL from self._queued_urls inside a lock so the feeder thread
-                # knows it is no longer in-flight and can re-crawled/re-queued if needed.
-                with self._queue_lock:
-                    self._queued_urls.discard(url)
-                q.task_done()
+                try:
+                    # Execute the crawl, page fetch, parsing, and link extraction.
+                    self.crawl_worker(url)
+                except Exception as e:
+                    self.logger.error(f"Critical error during crawl execution for {url}: {e}")
+                finally:
+                    # Mark the item as done to update the queue's task tracker.
+                    # Remove the URL from self._queued_urls inside a lock so the feeder thread
+                    # knows it is no longer in-flight and can re-crawled/re-queued if needed.
+                    with self._queue_lock:
+                        self._queued_urls.discard(url)
+                    q.task_done()
+        finally:
+            close_thread_connections()
 
     def crawl(self):
         """Crawl the site starting from the given URL using a Producer-Consumer thread pool."""
