@@ -500,104 +500,109 @@ def main():
     if args.url and args.config:
         parser.error("arguments --url and --config are mutually exclusive")
 
-    if args.url:
-        # Start crawling the single URL
-        crawler = SiteCrawler(
-            start_url=args.url,
-            respect_robots=args.respect_robots,
-            no_duplicates=args.no_duplicates,
-            crawl_delay=args.crawl_delay,
-            resume=args.resume,
-            re_crawl_time=args.re_crawl_time,
-            logs_dir=args.logs_dir,
-            db_dir=args.db_dir,
-            batch_size=args.batch_size,
-            workers=args.workers,
-            parser_engine=args.parser,
-            normalize_whitespace=args.normalize_whitespace,
-            plagiarism_db=args.plagiarism_db,
-            plagiarism_threshold=args.plagiarism_threshold
-        )
-        crawler.crawl()
-    else:
-        # Load and validate configuration file
-        try:
-            with open(args.config, "r", encoding="utf-8") as f:
-                config_data = json.load(f)
-        except Exception as e:
-            parser.error(f"Failed to read or parse configuration file: {e}")
-
-        # Support both plain list structure and object with outer metadata structure
-        plagiarism_db = args.plagiarism_db
-        plagiarism_threshold = args.plagiarism_threshold
-        sites_list = []
-
-        if isinstance(config_data, list):
-            sites_list = config_data
-        elif isinstance(config_data, dict):
-            if "plagiarism_db" in config_data:
-                plagiarism_db = config_data["plagiarism_db"]
-            if "plagiarism_threshold" in config_data:
-                plagiarism_threshold = config_data["plagiarism_threshold"]
-            sites_list = config_data.get("sites", [])
-            if not isinstance(sites_list, list):
-                parser.error("Configuration 'sites' field must be a JSON array of objects.")
-        else:
-            parser.error("Configuration file must contain a JSON array or a JSON object with a 'sites' array.")
-
-        for i, site in enumerate(sites_list):
-            if not isinstance(site, dict):
-                parser.error(f"Item at index {i} in configuration file is not a JSON object.")
-            if "url" not in site:
-                parser.error(f"Item at index {i} in configuration file is missing the required 'url' field.")
-
-        # Build the per-site crawler instances
-        crawlers = []
-        for site in sites_list:
+    try:
+        if args.url:
+            # Start crawling the single URL
             crawler = SiteCrawler(
-                start_url=site["url"],
-                respect_robots=site.get("respect_robots", args.respect_robots),
-                no_duplicates=site.get("no_duplicates", args.no_duplicates),
-                crawl_delay=site.get("crawl_delay", args.crawl_delay),
-                resume=site.get("resume", args.resume),
-                re_crawl_time=site.get("re_crawl_time", args.re_crawl_time),
-                logs_dir=site.get("logs_dir", args.logs_dir),
-                db_dir=site.get("db_dir", args.db_dir),
-                batch_size=site.get("batch_size", args.batch_size),
-                workers=site.get("workers", args.workers),
-                parser_engine=site.get("parser", args.parser),
-                normalize_whitespace=site.get("normalize_whitespace", args.normalize_whitespace),
-                plagiarism_db=plagiarism_db,
-                plagiarism_threshold=plagiarism_threshold
+                start_url=args.url,
+                respect_robots=args.respect_robots,
+                no_duplicates=args.no_duplicates,
+                crawl_delay=args.crawl_delay,
+                resume=args.resume,
+                re_crawl_time=args.re_crawl_time,
+                logs_dir=args.logs_dir,
+                db_dir=args.db_dir,
+                batch_size=args.batch_size,
+                workers=args.workers,
+                parser_engine=args.parser,
+                normalize_whitespace=args.normalize_whitespace,
+                plagiarism_db=args.plagiarism_db,
+                plagiarism_threshold=args.plagiarism_threshold
             )
-            crawlers.append(crawler)
-
-        def _crawl_site_task(crawler_instance):
-            """Thread entry point: crawl one site and return its URL."""
-            print(f"\n=== Starting crawl for: {crawler_instance.start_url} ===")
+            crawler.crawl()
+        else:
+            # Load and validate configuration file
             try:
-                crawler_instance.crawl()
+                with open(args.config, "r", encoding="utf-8") as f:
+                    config_data = json.load(f)
             except Exception as e:
-                print(f"Failed to crawl site {crawler_instance.start_url}: {e}")
-            return crawler_instance.start_url
+                parser.error(f"Failed to read or parse configuration file: {e}")
 
-        # Run all site crawls in parallel
-        print(f"\nLaunching {len(crawlers)} site crawl(s) in parallel...")
-        with ThreadPoolExecutor(max_workers=len(crawlers)) as site_executor:
-            site_futures = {
-                site_executor.submit(_crawl_site_task, crawler): crawler.start_url
-                for crawler in crawlers
-            }
-            for future in as_completed(site_futures):
-                url = site_futures[future]
+            # Support both plain list structure and object with outer metadata structure
+            plagiarism_db = args.plagiarism_db
+            plagiarism_threshold = args.plagiarism_threshold
+            sites_list = []
+
+            if isinstance(config_data, list):
+                sites_list = config_data
+            elif isinstance(config_data, dict):
+                if "plagiarism_db" in config_data:
+                    plagiarism_db = config_data["plagiarism_db"]
+                if "plagiarism_threshold" in config_data:
+                    plagiarism_threshold = config_data["plagiarism_threshold"]
+                sites_list = config_data.get("sites", [])
+                if not isinstance(sites_list, list):
+                    parser.error("Configuration 'sites' field must be a JSON array of objects.")
+            else:
+                parser.error("Configuration file must contain a JSON array or a JSON object with a 'sites' array.")
+
+            for i, site in enumerate(sites_list):
+                if not isinstance(site, dict):
+                    parser.error(f"Item at index {i} in configuration file is not a JSON object.")
+                if "url" not in site:
+                    parser.error(f"Item at index {i} in configuration file is missing the required 'url' field.")
+
+            # Build the per-site crawler instances
+            crawlers = []
+            for site in sites_list:
+                crawler = SiteCrawler(
+                    start_url=site["url"],
+                    respect_robots=site.get("respect_robots", args.respect_robots),
+                    no_duplicates=site.get("no_duplicates", args.no_duplicates),
+                    crawl_delay=site.get("crawl_delay", args.crawl_delay),
+                    resume=site.get("resume", args.resume),
+                    re_crawl_time=site.get("re_crawl_time", args.re_crawl_time),
+                    logs_dir=site.get("logs_dir", args.logs_dir),
+                    db_dir=site.get("db_dir", args.db_dir),
+                    batch_size=site.get("batch_size", args.batch_size),
+                    workers=site.get("workers", args.workers),
+                    parser_engine=site.get("parser", args.parser),
+                    normalize_whitespace=site.get("normalize_whitespace", args.normalize_whitespace),
+                    plagiarism_db=plagiarism_db,
+                    plagiarism_threshold=plagiarism_threshold
+                )
+                crawlers.append(crawler)
+
+            def _crawl_site_task(crawler_instance):
+                """Thread entry point: crawl one site and return its URL."""
+                print(f"\n=== Starting crawl for: {crawler_instance.start_url} ===")
                 try:
-                    future.result()
-                    print(f"\n=== Crawl finished for: {url} ===")
-                except (KeyboardInterrupt, SystemExit):
-                    print("\nCrawl execution interrupted by user. Exiting.")
-                    break
+                    crawler_instance.crawl()
                 except Exception as e:
-                    print(f"Unhandled error for {url}: {e}")
+                    print(f"Failed to crawl site {crawler_instance.start_url}: {e}")
+                return crawler_instance.start_url
+
+            # Run all site crawls in parallel
+            print(f"\nLaunching {len(crawlers)} site crawl(s) in parallel...")
+            with ThreadPoolExecutor(max_workers=len(crawlers)) as site_executor:
+                site_futures = {
+                    site_executor.submit(_crawl_site_task, crawler): crawler.start_url
+                    for crawler in crawlers
+                }
+                for future in as_completed(site_futures):
+                    url = site_futures[future]
+                    try:
+                        future.result()
+                        print(f"\n=== Crawl finished for: {url} ===")
+                    except (KeyboardInterrupt, SystemExit):
+                        print("\nCrawl execution interrupted by user. Exiting.")
+                        break
+                    except Exception as e:
+                        print(f"Unhandled error for {url}: {e}")
+    finally:
+        print("\nWaiting for plagiarism indexing background tasks to complete...")
+        SimilarityIndexer.shutdown()
+        print("Plagiarism indexing completed.")
 
 
 if __name__ == "__main__":

@@ -3,8 +3,15 @@ import sqlite3
 import struct
 import random
 import logging
+import queue
+import threading
+import os
 from database import get_connection
 
+# Registry of active database background workers (db_path -> (Queue, Thread))
+# Ensures that only one background writer thread processes queries per database file.
+_active_workers = {}
+_workers_lock = threading.Lock()
 
 
 def init_similarity_db(db_path, logger=None):
@@ -94,60 +101,153 @@ def calculate_similarity(sig1_blob, sig2_blob, num_permutations=128):
     return matches / num_permutations
 
 
+def _similarity_worker_loop(db_path, job_queue):
+    """Background worker thread that processes central similarity requests sequentially to avoid lock contention."""
+    conn = get_connection(db_path)
+    while True:
+        job = job_queue.get()
+        if job is None:
+            job_queue.task_done()
+            break
+
+        try:
+            url = job["url"]
+            domain = job["domain"]
+            title = job["title"]
+            html_content = job["html_content"]
+            extracted_text = job["extracted_text"]
+            date_crawled = job["date_crawled"]
+            threshold = job["threshold"]
+            logger = logging.getLogger(job["logger_name"])
+
+            sig = compute_minhash(extracted_text)
+            matches = []
+            with conn:
+                # Query existing signatures to compare.
+                # Performance Optimization: Only load metadata to avoid memory-intensive HTML content strings.
+                cursor = conn.execute(
+                    "SELECT url, domain, title, date_crawled, text_signature FROM global_signatures WHERE url != ?",
+                    (url,)
+                )
+                rows = cursor.fetchall()
+
+                for other_url, other_domain, other_title, other_date, other_sig in rows:
+                    score = calculate_similarity(sig, other_sig)
+                    if score >= threshold:
+                        matches.append({
+                            "url": other_url,
+                            "domain": other_domain,
+                            "title": other_title,
+                            "date_crawled": other_date,
+                            "score": score
+                        })
+
+                # Save the new signature and clean text + html to global index database
+                conn.execute("""
+                    INSERT OR REPLACE INTO global_signatures (domain, url, title, html_content, extracted_text, date_crawled, text_signature)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (domain, url, title, html_content, extracted_text, date_crawled, sig))
+
+                # Record plagiarism matching pairs
+                for match in matches:
+                    conn.execute("""
+                        INSERT OR IGNORE INTO plagiarism_matches (source_url, target_url, similarity_score, match_type)
+                        VALUES (?, ?, ?, ?)
+                    """, (url, match["url"], match["score"], "near_duplicate"))
+
+            # Log any detected duplicate warnings
+            for match in matches:
+                logger.warning(
+                    f"🚨 Plagiarism/Duplicate Detected! {url} is "
+                    f"{match['score']*100:.1f}% similar to {match['url']} ({match['title']})"
+                )
+
+        except Exception as e:
+            print(f"Error in similarity indexing background thread for {db_path}: {e}")
+        finally:
+            job_queue.task_done()
+
+
 class SimilarityIndexer:
     """Manages cross-domain signature checking and plagiarism detection database records."""
 
-    def __init__(self, index_db_path="db/plagiarism_index.db", logger=None):
-        self.db_path = index_db_path
+    def __init__(self, index_db_path="db/plagiarism_index.db", sync=False, logger=None):
+        self.db_path = os.path.abspath(index_db_path)
+        self.sync = sync
         self.logger = logger or logging.getLogger(__name__)
         init_similarity_db(self.db_path, logger=self.logger)
+
+        if not self.sync:
+            with _workers_lock:
+                if self.db_path not in _active_workers:
+                    job_queue = queue.Queue()
+                    t = threading.Thread(
+                        target=_similarity_worker_loop,
+                        args=(self.db_path, job_queue),
+                        daemon=True
+                    )
+                    t.start()
+                    _active_workers[self.db_path] = (job_queue, t)
+                self.queue = _active_workers[self.db_path][0]
 
     def index_and_check(self, url, domain, title, html_content, extracted_text, date_crawled, threshold=0.8):
         """Index the text signature and find existing matches above the similarity threshold.
 
         Returns:
-            list: List of matching documents containing url, domain, title, score, etc.
+            list: List of matching documents (only populated if running in sync=True mode).
         """
         if not extracted_text:
             return []
 
-        sig = compute_minhash(extracted_text)
-        conn = get_connection(self.db_path)
+        if self.sync:
+            sig = compute_minhash(extracted_text)
+            conn = get_connection(self.db_path)
+            matches = []
+            with conn:
+                cursor = conn.execute(
+                    "SELECT url, domain, title, date_crawled, text_signature FROM global_signatures WHERE url != ?",
+                    (url,)
+                )
+                rows = cursor.fetchall()
 
-        matches = []
-        with conn:
-            # Query existing signatures to compare.
-            cursor = conn.execute(
-                "SELECT url, domain, title, html_content, extracted_text, date_crawled, text_signature FROM global_signatures WHERE url != ?",
-                (url,)
-            )
-            rows = cursor.fetchall()
+                for other_url, other_domain, other_title, other_date, other_sig in rows:
+                    score = calculate_similarity(sig, other_sig)
+                    if score >= threshold:
+                        matches.append({
+                            "url": other_url,
+                            "domain": other_domain,
+                            "title": other_title,
+                            "date_crawled": other_date,
+                            "score": score
+                        })
 
-            for other_url, other_domain, other_title, other_html, other_text, other_date, other_sig in rows:
-                score = calculate_similarity(sig, other_sig)
-                if score >= threshold:
-                    matches.append({
-                        "url": other_url,
-                        "domain": other_domain,
-                        "title": other_title,
-                        "html_content": other_html,
-                        "extracted_text": other_text,
-                        "date_crawled": other_date,
-                        "score": score
-                    })
-
-            # Save the new signature and clean text + html to global index database
-            conn.execute("""
-                INSERT OR REPLACE INTO global_signatures (domain, url, title, html_content, extracted_text, date_crawled, text_signature)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (domain, url, title, html_content, extracted_text, date_crawled, sig))
-
-            # Record plagiarism matching pairs
-            for match in matches:
-                # Store match in both directions to allow easy queries later
                 conn.execute("""
-                    INSERT OR IGNORE INTO plagiarism_matches (source_url, target_url, similarity_score, match_type)
-                    VALUES (?, ?, ?, ?)
-                """, (url, match["url"], match["score"], "near_duplicate"))
+                    INSERT OR REPLACE INTO global_signatures (domain, url, title, html_content, extracted_text, date_crawled, text_signature)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (domain, url, title, html_content, extracted_text, date_crawled, sig))
 
-        return matches
+                for match in matches:
+                    conn.execute("""
+                        INSERT OR IGNORE INTO plagiarism_matches (source_url, target_url, similarity_score, match_type)
+                        VALUES (?, ?, ?, ?)
+                    """, (url, match["url"], match["score"], "near_duplicate"))
+            return matches
+        else:
+            self.queue.put({
+                "url": url,
+                "domain": domain,
+                "title": title,
+                "html_content": html_content,
+                "extracted_text": extracted_text,
+                "date_crawled": date_crawled,
+                "threshold": threshold,
+                "logger_name": self.logger.name
+            })
+            return []
+
+    @staticmethod
+    def shutdown():
+        """Blocks until all active similarity queues have finished processing and joins them."""
+        with _workers_lock:
+            for db_path, (job_queue, _) in list(_active_workers.items()):
+                job_queue.join()
