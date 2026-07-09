@@ -163,7 +163,16 @@ def _similarity_worker_loop(db_path, job_queue):
                 )
 
         except Exception as e:
-            print(f"Error in similarity indexing background thread for {db_path}: {e}")
+            # Attempt to retrieve the job's logger for context, otherwise fallback to the module-level logger
+            thread_logger = None
+            try:
+                if 'job' in locals() and isinstance(job, dict) and "logger_name" in job:
+                    thread_logger = logging.getLogger(job["logger_name"])
+            except Exception:
+                pass
+            if thread_logger is None:
+                thread_logger = logging.getLogger(__name__)
+            thread_logger.error(f"Error in similarity indexing background thread for {db_path}: {e}")
         finally:
             job_queue.task_done()
 

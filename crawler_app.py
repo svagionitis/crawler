@@ -182,21 +182,24 @@ class SiteCrawler:
         )
 
         if extracted.get("text"):
-            # Check for plagiarism / near-duplicates against the central index
-            matches = self.indexer.index_and_check(
-                url=current_url,
-                domain=self.domain,
-                title=extracted["title"] or "",
-                html_content=content,
-                extracted_text=extracted["text"],
-                date_crawled=datetime.now(),
-                threshold=self.plagiarism_threshold
-            )
-            for match in matches:
-                self.logger.warning(
-                    f"🚨 Plagiarism/Duplicate Detected! {current_url} is "
-                    f"{match['score']*100:.1f}% similar to {match['url']} ({match['title']})"
+            try:
+                # Check for plagiarism / near-duplicates against the central index
+                matches = self.indexer.index_and_check(
+                    url=current_url,
+                    domain=self.domain,
+                    title=extracted["title"] or "",
+                    html_content=content,
+                    extracted_text=extracted["text"],
+                    date_crawled=datetime.now(),
+                    threshold=self.plagiarism_threshold
                 )
+                for match in matches:
+                    self.logger.warning(
+                        f"🚨 Plagiarism/Duplicate Detected! {current_url} is "
+                        f"{match['score']*100:.1f}% similar to {match['url']} ({match['title']})"
+                    )
+            except Exception as e:
+                self.logger.error(f"Error checking similarity for {current_url}: {e}")
 
         return content, new_links, None
 
