@@ -280,8 +280,8 @@ CREATE TABLE crawled_data (
     parser_used        TEXT                 -- engine that ran the extraction ('newspaper', 'trafilatura', 'bs4', or NULL)
 );
 
--- Indexes for fast queue queries
-CREATE INDEX        idx_link          ON crawled_data (link);
+-- Indexes for fast queue queries and uniqueness constraint
+CREATE UNIQUE INDEX idx_link          ON crawled_data (link);
 CREATE INDEX        idx_status        ON crawled_data (status);
 CREATE INDEX        idx_link_status   ON crawled_data (link, status);
 -- Unique index for DB-level duplicate detection (NULLs are exempt)
@@ -290,13 +290,12 @@ CREATE UNIQUE INDEX idx_content_hash  ON crawled_data (content_hash);
 
 > **Migration note for existing databases**
 >
-> When the crawler starts against a database created before this change,
-> `init_db` detects whether `idx_content_hash` is already present.
-> If the index is missing, it **automatically** removes any duplicate
-> `content_hash` rows (keeping the oldest record per hash, leaving `NULL`
-> values untouched) and then creates the index.
-> No manual intervention is required — the migration runs once on the
-> first startup and is a no-op on all subsequent runs.
+> When the crawler starts against a database created before these changes:
+> 1. `init_db` automatically detects if `idx_link` is a regular index. If so, it deduplicates the table (keeping the oldest record per link), drops the old index, and recreates `idx_link` as a `UNIQUE` index. This is required to support the high-performance single-roundtrip `UPSERT` operations.
+> 2. `init_db` detects whether `idx_content_hash` is present. If missing, it removes duplicate content hashes (keeping the oldest record per hash) and creates the unique index.
+>
+> No manual intervention is required — these migrations run once on the first startup and are completely transparent.
+
 
 **Status lifecycle:**
 

@@ -63,8 +63,33 @@ def init_db(database_name, logger=None):
             )
             """
         )
-        # Create an index on the link column
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_link ON crawled_data (link)")
+        # Ensure idx_link is a UNIQUE index for UPSERT compatibility and data integrity.
+        cursor.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_link'"
+        )
+        idx_sql = cursor.fetchone()
+        is_unique = idx_sql and "UNIQUE" in idx_sql[0].upper()
+
+        if not is_unique:
+            # Clean up duplicate links before creating the unique index.
+            # Keep the row with the lowest id (oldest insertion) for each link.
+            cursor.execute(
+                """
+                DELETE FROM crawled_data
+                WHERE id NOT IN (
+                    SELECT MIN(id)
+                    FROM crawled_data
+                    GROUP BY link
+                )
+                """
+            )
+            deleted_links = cursor.rowcount
+            if deleted_links:
+                logger.info(f"Auto-migration: removed {deleted_links} duplicate link row(s).")
+            
+            cursor.execute("DROP INDEX IF EXISTS idx_link")
+            cursor.execute("CREATE UNIQUE INDEX idx_link ON crawled_data (link)")
+            logger.info("Auto-migration: created UNIQUE index idx_link.")
         # Create an index on the status column
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_status ON crawled_data (status)")
         # Create an index on the link, status columns
@@ -132,39 +157,42 @@ def save_links_to_db(database_name, domain, links, robots_parser, status="pendin
                     logger.info(f"Skipping disallowed link: {link}")
                     continue
 
-                # Check if the link already exists and is pending
                 cursor.execute(
                     """
-                    SELECT id FROM crawled_data WHERE link = ? AND status = 'pending'
+                    INSERT INTO crawled_data (domain, date_inserted, link, status)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(link) DO UPDATE SET
+                        date_inserted = excluded.date_inserted
+                    WHERE status = 'pending'
                     """,
-                    (link,),
+                    (domain, datetime.now(), link, status),
                 )
-                existing_link = cursor.fetchone()
-
-                if existing_link:
-                    # Update the date_inserted for the existing pending link
-                    cursor.execute(
-                        """
-                        UPDATE crawled_data
-                        SET date_inserted = ?
-                        WHERE id = ?
-                        """,
-                        (datetime.now(), existing_link[0]),
-                    )
-                    logger.info(f"Updated date_inserted for pending link: {link}")
-                else:
-                    # Insert the new link
-                    cursor.execute(
-                        """
-                        INSERT OR IGNORE INTO crawled_data (domain, date_inserted, link, status)
-                        VALUES (?, ?, ?, ?)
-                        """,
-                        (domain, datetime.now(), link, status),
-                    )
-                    logger.info(f"Saved link to database: {link} (status: {status})")
+                if cursor.rowcount > 0:
+                    logger.info(f"Saved/updated link in database: {link} (status: {status})")
             conn.commit()  # Commit all changes at once
     except sqlite3.Error as e:
         logger.error(f"Database error while saving links: {e}")
+
+def reset_link_to_pending(database_name, link, logger=None):
+    """Reset a crawled link back to pending (for re-crawls)."""
+    if logger is None:
+        logger = logging.getLogger(__name__)
+    try:
+        conn = get_connection(database_name)
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE crawled_data
+                SET status = 'pending', date_inserted = ?
+                WHERE link = ?
+                """,
+                (datetime.now(), link),
+            )
+            conn.commit()
+            logger.info(f"Reset link status to pending for re-crawl: {link}")
+    except sqlite3.Error as e:
+        logger.error(f"Database error while resetting link to pending: {e}")
 
 def update_link_in_db(database_name, link, content, content_hash, status="crawled",
                       extracted_title=None, extracted_text=None, extracted_authors=None,

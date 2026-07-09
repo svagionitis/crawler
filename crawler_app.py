@@ -9,7 +9,7 @@ from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 from database import init_db, save_links_to_db, update_link_in_db, \
     load_pending_links, get_database_name, is_database_empty, check_re_crawl, \
-    is_duplicate_content
+    is_duplicate_content, reset_link_to_pending
 from utils import fetch_page, extract_links, compute_hash, ensure_directory_exists, extract_article_content
 from bs4 import BeautifulSoup
 from config import USER_AGENT
@@ -124,7 +124,7 @@ def crawl_page(database_name, current_url, robots_parser, no_duplicates,
     # Check if the link should be re-crawled
     if not check_re_crawl(database_name, current_url, re_crawl_time, logger=logger):
         logger.info(f"Link {current_url} was crawled recently. Updating date_inserted and setting status to pending.")
-        save_links_to_db(database_name, urlparse(current_url).netloc, [current_url], robots_parser, status="pending", logger=logger)
+        reset_link_to_pending(database_name, current_url, logger=logger)
         return None, set(), "save"
 
     # Fetch the page
