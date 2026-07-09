@@ -156,6 +156,7 @@ def crawl_page(database_name, current_url, robots_parser, no_duplicates,
         extracted_authors=extracted["authors"],
         extracted_date=extracted["date"],
         extracted_keywords=extracted["keywords"],
+        parser_used=extracted["parser_used"],
         logger=logger
     )
 

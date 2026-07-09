@@ -168,6 +168,7 @@ For downstream text similarity, plagiarism checking, or general news analysis, t
   - `extracted_authors`: Comma-separated list of article authors.
   - `extracted_date`: Publication date in ISO format or raw string.
   - `extracted_keywords`: Comma-separated list of keywords.
+  - `parser_used`: The engine that actually performed the extraction (`newspaper`, `trafilatura`, or `bs4`). Reflects the real engine even when `--parser auto` fell back to a secondary option or when the primary engine raised an exception.
 - **Parser Engines**:
   - `newspaper`: Uses the `newspaper3k` package (best for full news metadata, authorship, and NLP keywords).
   - `trafilatura`: Uses the `trafilatura` library (highly accurate text extraction and boilerplate cleaning).
@@ -275,7 +276,8 @@ CREATE TABLE crawled_data (
     extracted_text     TEXT,                -- clean body text (boilerplate removed)
     extracted_authors  TEXT,                -- comma-separated author list
     extracted_date     TEXT,                -- publication date (ISO format or raw string)
-    extracted_keywords TEXT                 -- comma-separated keywords
+    extracted_keywords TEXT,                -- comma-separated keywords
+    parser_used        TEXT                 -- engine that ran the extraction ('newspaper', 'trafilatura', 'bs4', or NULL)
 );
 
 -- Indexes for fast queue queries

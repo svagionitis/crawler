@@ -259,7 +259,8 @@ def extract_article_content(html_content, url=None, engine="auto", logger=None):
         logger: Optional logger instance. Falls back to module-level logger.
 
     Returns:
-        dict: A dictionary containing title, text, authors, date, and keywords.
+        dict: A dictionary containing title, text, authors, date, keywords, and
+              parser_used (the name of the engine that actually ran the extraction).
     """
     if logger is None:
         logger = logging.getLogger(__name__)
@@ -274,43 +275,56 @@ def extract_article_content(html_content, url=None, engine="auto", logger=None):
             engine = "bs4"
 
     title, text, authors, date_str, keywords_str = None, None, None, None, None
+    # Tracks which engine actually ran so we can persist it in the DB.
+    # Set after each successful extraction call; overwritten on fallback.
+    actual_engine = None
 
     try:
         if engine == "newspaper":
             if HAS_NEWSPAPER:
                 title, text, authors, date_str, keywords_str = extract_with_newspaper(html_content, url, logger=logger)
+                actual_engine = "newspaper"
             else:
                 logger.warning("newspaper3k is selected but not installed. Falling back to trafilatura or bs4.")
                 if HAS_TRAFILATURA:
                     title, text, authors, date_str, keywords_str = extract_with_trafilatura(html_content, logger=logger)
+                    actual_engine = "trafilatura"
                 else:
                     title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, logger=logger)
+                    actual_engine = "bs4"
 
         elif engine == "trafilatura":
             if HAS_TRAFILATURA:
                 title, text, authors, date_str, keywords_str = extract_with_trafilatura(html_content, logger=logger)
+                actual_engine = "trafilatura"
             else:
                 logger.warning("trafilatura is selected but not installed. Falling back to bs4.")
                 title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, logger=logger)
+                actual_engine = "bs4"
 
         elif engine == "bs4":
             title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, logger=logger)
+            actual_engine = "bs4"
 
         else:
             logger.error(f"Unknown parser engine '{engine}'. Falling back to bs4.")
             title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, logger=logger)
+            actual_engine = "bs4"
 
     except Exception as e:
         logger.error(f"Error during content extraction with engine {engine}: {e}. Falling back to bs4.")
         try:
             title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, logger=logger)
+            actual_engine = "bs4"
         except Exception as e_fallback:
             logger.error(f"Critical error in fallback bs4 parser: {e_fallback}")
+            actual_engine = None
 
     return {
         "title": title.strip() if title else None,
         "text": text.strip() if text else None,
         "authors": authors.strip() if authors else None,
         "date": date_str.strip() if date_str else None,
-        "keywords": keywords_str.strip() if keywords_str else None
+        "keywords": keywords_str.strip() if keywords_str else None,
+        "parser_used": actual_engine,
     }

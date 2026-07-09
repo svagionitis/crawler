@@ -39,7 +39,8 @@ def init_db(database_name, logger=None):
                 extracted_text TEXT,
                 extracted_authors TEXT,
                 extracted_date TEXT,
-                extracted_keywords TEXT
+                extracted_keywords TEXT,
+                parser_used TEXT
             )
             """
         )
@@ -89,7 +90,8 @@ def init_db(database_name, logger=None):
             ("extracted_text", "TEXT"),
             ("extracted_authors", "TEXT"),
             ("extracted_date", "TEXT"),
-            ("extracted_keywords", "TEXT")
+            ("extracted_keywords", "TEXT"),
+            ("parser_used", "TEXT"),
         ]
         for col_name, col_type in new_columns:
             if col_name not in columns:
@@ -146,7 +148,8 @@ def save_links_to_db(database_name, domain, links, robots_parser, status="pendin
 
 def update_link_in_db(database_name, link, content, content_hash, status="crawled",
                       extracted_title=None, extracted_text=None, extracted_authors=None,
-                      extracted_date=None, extracted_keywords=None, logger=None) -> bool:
+                      extracted_date=None, extracted_keywords=None, parser_used=None,
+                      logger=None) -> bool:
     """Update a link in the database with content, hash, date_crawled, parsed metadata, and mark it with the given status.
 
     Returns:
@@ -163,12 +166,12 @@ def update_link_in_db(database_name, link, content, content_hash, status="crawle
                 UPDATE crawled_data
                 SET content = ?, content_hash = ?, status = ?, date_crawled = ?,
                     extracted_title = ?, extracted_text = ?, extracted_authors = ?,
-                    extracted_date = ?, extracted_keywords = ?
+                    extracted_date = ?, extracted_keywords = ?, parser_used = ?
                 WHERE link = ?
                 """,
                 (content, content_hash, status, datetime.now(),
                  extracted_title, extracted_text, extracted_authors,
-                 extracted_date, extracted_keywords, link),
+                 extracted_date, extracted_keywords, parser_used, link),
             )
             conn.commit()
             logger.info(f"Updated link in database: {link}")
