@@ -78,24 +78,28 @@ def compute_minhash(text, num_permutations=128):
 
     # Clean text: normalize whitespace and lowercase for similarity robustness
     text = " ".join(text.split()).lower()
-    shingles = set()
-    for i in range(len(text) - 2):
-        shingles.add(text[i : i + 3])
-
-    if not shingles:
+    
+    if len(text) < 3:
         # Return signature filled with maximum value if document contains no shingles
         return struct.pack(f"<{num_permutations}I", *[0xFFFFFFFF] * num_permutations)
 
     signature = [0xFFFFFFFF] * num_permutations
+    seen_hashes = set()
 
-    for shingle in shingles:
+    for i in range(len(text) - 2):
+        shingle = text[i : i + 3]
         # Hash shingles into 32-bit integers using a slice of SHA-256
         shingle_hash = int(hashlib.sha256(shingle.encode("utf-8")).hexdigest()[:8], 16)
-        for i in range(num_permutations):
+        
+        if shingle_hash in seen_hashes:
+            continue
+        seen_hashes.add(shingle_hash)
+
+        for j in range(num_permutations):
             # Universal hashing: h(x) = (a * x + b) % p
-            val = (coeff_a[i] * shingle_hash + coeff_b[i]) % prime
-            if val < signature[i]:
-                signature[i] = val
+            val = (coeff_a[j] * shingle_hash + coeff_b[j]) % prime
+            if val < signature[j]:
+                signature[j] = val
 
     # Pack 128 unsigned integers (4 bytes each) into a 512-byte binary blob
     return struct.pack(f"<{num_permutations}I", *signature)
