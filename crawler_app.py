@@ -78,7 +78,7 @@ def initialize_crawler(start_url, respect_robots, crawl_delay, logs_dir, db_dir)
     if respect_robots:
         robots_parser = RobotFileParser()
         robots_url = urljoin(start_url, "/robots.txt")
-        robots_content, robots_error_description = fetch_page(robots_url, logger=logger)
+        robots_content, _, robots_error_description = fetch_page(robots_url, logger=logger)
         if robots_error_description:
             logger.warning(f"Failed to fetch robots.txt: {robots_error_description}")
             return database_name, None, crawl_delay, False, logger
@@ -123,7 +123,7 @@ def crawl_page(database_name, current_url, robots_parser, no_duplicates,
 
     # Fetch the page
     logger.info(f"Crawling: {current_url}")
-    content, error_description = fetch_page(current_url, logger=logger)
+    content, content_type, error_description = fetch_page(current_url, logger=logger)
     if error_description:
         # Handle failure
         error_description_hash = compute_hash(error_description)
@@ -140,9 +140,11 @@ def crawl_page(database_name, current_url, robots_parser, no_duplicates,
         logger.info(f"Skipping duplicate content: {current_url}")
         return None, set(), None
 
-    # Detect HTML once and parse into a soup object that is shared between link
-    # extraction and content extraction — avoiding two full HTML parses per page.
-    is_html = ("<html" in content.lower() or "<body" in content.lower() or "<p" in content.lower() or "<div" in content.lower())
+    # Detect HTML once using the Content-Type header or a limited prefix search of
+    # the first 1000 characters, avoiding memory-intensive full-page string copies.
+    is_html = (content_type and "html" in content_type) or (
+        content and any(tag in content[:1000].lower() for tag in ("<html", "<body", "<p", "<div"))
+    )
     soup = BeautifulSoup(content, "html.parser") if is_html else None
 
     # Extract links FIRST using the pre-parsed soup (non-destructive: only reads

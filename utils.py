@@ -34,8 +34,8 @@ def fetch_page(url, max_retries=3, initial_timeout=60, logger=None):
         logger: Optional logger instance. Falls back to module-level logger.
 
     Returns:
-        tuple: (content, error_description) where content is the page content or None,
-               and error_description is an error message or None.
+        tuple: (content, content_type, error_description) where content is the page content or None,
+               content_type is the MIME type or None, and error_description is an error message or None.
     """
     if logger is None:
         logger = logging.getLogger(__name__)
@@ -53,10 +53,10 @@ def fetch_page(url, max_retries=3, initial_timeout=60, logger=None):
 
             if "text/" in content_type:
                  # Return text content as plain text
-                return response.text, None
+                return response.text, content_type, None
             else:
-                # Return binary content as Base64-encoded string
-                return base64.b64encode(response.content).decode("utf-8"), None
+                 # Return binary content as Base64-encoded string
+                return base64.b64encode(response.content).decode("utf-8"), content_type, None
 
         except requests.exceptions.HTTPError as e:
             status_code = e.response.status_code if e.response is not None else None
@@ -69,11 +69,11 @@ def fetch_page(url, max_retries=3, initial_timeout=60, logger=None):
                 else:
                     error_description = f"504 Gateway Timeout after {max_retries} retries: {e}"
                     logger.error(f"Failed to fetch {url}: {error_description}")
-                    return None, error_description
+                    return None, None, error_description
             else:
                 error_description = f"HTTP Error {status_code}: {e}"
                 logger.error(f"Failed to fetch {url}: {error_description}")
-                return None, error_description
+                return None, None, error_description
 
         except requests.exceptions.Timeout as e:
             retry_count += 1
@@ -84,7 +84,7 @@ def fetch_page(url, max_retries=3, initial_timeout=60, logger=None):
             else:
                 error_description = f"Timeout after {max_retries} retries: {e}"
                 logger.error(f"Failed to fetch {url}: {error_description}")
-                return None, error_description
+                return None, None, error_description
 
         except requests.exceptions.SSLError as e:
             # Transient SSL failures (e.g. UNEXPECTED_EOF_WHILE_READING) — the
@@ -99,7 +99,7 @@ def fetch_page(url, max_retries=3, initial_timeout=60, logger=None):
             else:
                 error_description = f"SSL error after {max_retries} retries: {e}"
                 logger.error(f"Failed to fetch {url}: {error_description}")
-                return None, error_description
+                return None, None, error_description
 
         except requests.exceptions.ConnectionError as e:
             # Server reset the connection, refused it, or the network dropped.
@@ -112,16 +112,16 @@ def fetch_page(url, max_retries=3, initial_timeout=60, logger=None):
             else:
                 error_description = f"Connection error after {max_retries} retries: {e}"
                 logger.error(f"Failed to fetch {url}: {error_description}")
-                return None, error_description
+                return None, None, error_description
 
         except requests.exceptions.RequestException as e:
             # Non-retriable errors (e.g. invalid URL, DNS resolution failure).
             error_description = str(e)
             logger.error(f"Failed to fetch {url}: {error_description}")
-            return None, error_description
+            return None, None, error_description
 
 
-    return None, "Max retries reached without success"
+    return None, None, "Max retries reached without success"
 
 def extract_links(base_url, html_content, robots_parser, soup=None, logger=None):
     """Extract all links from the HTML content that belong to the same domain and are allowed by robots.txt.
