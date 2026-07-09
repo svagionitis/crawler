@@ -51,12 +51,65 @@ scripts/
   └── crawl-links.ps1 ← PowerShell launcher for parallel multi-site crawls
 ```
 
-The crawler follows a simple **BFS queue** pattern:
+The crawler implements a continuous **Producer-Consumer Threading model** to optimize network throughput and decouple database read operations from network fetching:
 
-1. Seed URL is inserted as `pending` in the database.
-2. The main loop pops a URL, fetches its content, updates the record to `crawled`, extracts new same-domain links, and appends them to the queue.
-3. New links are batch-saved to the database before the next request.
-4. A configurable sleep is observed between each real fetch.
+```mermaid
+graph TD
+    subgraph SiteCrawler [SiteCrawler: Threading Model]
+        Feeder["Feeder Thread (Producer)"]
+        Queue["queue.Queue (Bounded Buffer)"]
+        Workers["Worker Threads (Consumers)"]
+    end
+
+    DB[("SQLite Database<br>(crawled_data)")]
+    Network(("Internet / Web Pages"))
+
+    %% Feeder flow
+    DB -->|1. Pull Pending Links| Feeder
+    Feeder -->|2. Put URLs| Queue
+
+    %% Worker flow
+    Queue -->|3. Get URL| Workers
+    Workers -->|4. Fetch Page| Network
+    Network -->|5. Return Content| Workers
+    Workers -->|6. Save Links & Articles| DB
+```
+```text
+                  [ SQLite Database ]
+                      ▲           │
+       (6. Save Links)│           │ (1. Pull Pending Links)
+                      │           ▼
+               ┌──────┴───────────┴──────────┐
+               │       SiteCrawler           │
+               │                             │
+               │   ┌─────────────────────┐   │
+               │   │    Feeder Thread    │   │
+               │   │     (Producer)      │   │
+               │   └──────────┬──────────┘   │
+               │              │              │
+               │              │ (2. Put URL) │
+               │              ▼              │
+               │   ┌─────────────────────┐   │
+               │   │     queue.Queue     │   │
+               │   │  (Bounded Buffer)   │   │
+               │   └──────────┬──────────┘   │
+               │              │              │
+               │              │ (3. Get URL) │
+               │              ▼              │
+               │   ┌─────────────────────┐   │
+               │   │   Worker Threads    │   │
+               │   │     (Consumers)     │   │
+               │   └──────────┬──────────┘   │
+               └──────────────┼──────────────┘
+                              │ (4. Fetch Page)
+                              ▼
+                      [ Internet Pages ]
+```
+
+
+1. **Feeder Thread (Producer)**: Continuously queries SQLite for pending links (using the CLI configured batch limit) and feeds them into a thread-safe bounded queue (`queue.Queue`). To prevent duplication, URLs currently queued or in-flight are tracked in an in-memory set under a thread lock.
+2. **Worker Threads (Consumers)**: A pool of persistent worker threads runs in a `ThreadPoolExecutor`. They continuously pull URLs from the queue, execute fetch requests, process page parsing via Strategy Extractors, extract same-domain links, and persist results to SQLite (which automatically wakes up the feeder thread to queue newly discovered pages).
+3. **Crawl Termination**: When no pending URLs remain in SQLite, and all worker threads are idle, the feeder thread sets the shutdown event, terminating worker loops cleanly.
 
 ---
 
@@ -312,9 +365,10 @@ re-crawl skipped → pending (date_inserted refreshed)
 
 ```
 .
-├── crawler_app.py          # Main entry point and crawl orchestration
+├── crawler_app.py          # Main entry point and crawl orchestration (SiteCrawler)
 ├── config.py               # Shared constants (USER_AGENT)
-├── database.py             # SQLite helpers (init, save, update, load, check)
+├── database.py             # SQLite helpers (init, save, update, load, check, thread-local cache)
+├── extractors.py           # News article content extractors (Strategy Pattern: Newspaper, Trafilatura, BS4)
 ├── utils.py                # HTTP fetch, link extraction, hashing, directory utils
 ├── requirements.txt        # Python dependencies
 ├── config/

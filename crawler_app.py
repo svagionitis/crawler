@@ -5,6 +5,7 @@ import signal
 import time
 import os
 import json
+import queue
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 from database import init_db, save_links_to_db, update_link_in_db, \
@@ -59,6 +60,12 @@ class SiteCrawler:
         self.robots_delay_applied = False
         self.logger = None
         self.shutdown_event = threading.Event()
+
+        # In-memory tracking of URLs currently queued or being processed.
+        # This prevents the Producer thread from querying and queuing duplicate
+        # pending URLs that are already active in-flight but not yet written to DB.
+        self._queued_urls = set()
+        self._queue_lock = threading.Lock()
 
     def initialize(self):
         """Initialize the crawler: set up logging, database schemas, and robots.txt."""
@@ -193,8 +200,87 @@ class SiteCrawler:
         self.shutdown_event.wait(self.crawl_delay)
         return current_url
 
+    def _feeder_loop(self, q):
+        """Background thread logic to continuously load pending URLs from SQLite
+
+        and push them onto the thread-safe queue. This acts as the Producer.
+        """
+        self.logger.info("Starting database queue feeder thread.")
+
+        while not self.shutdown_event.is_set():
+            # Check how many items are currently buffered in the queue.
+            # We want to maintain a healthy backlog without filling memory.
+            current_queued = q.qsize()
+            target_fill = self.batch_size * 2
+
+            # If the queue buffer drops below self.batch_size, fetch more URLs.
+            if current_queued < self.batch_size:
+                limit = target_fill - current_queued
+                try:
+                    # Query SQLite for the next batch of pending URLs.
+                    batch = load_pending_links(self.database_name, self.re_crawl_time, limit=limit, logger=self.logger)
+                except Exception as e:
+                    self.logger.error(f"Error querying pending links from database: {e}")
+                    batch = []
+
+                # Filter out URLs that are already queued/in-flight to avoid duplicate crawling.
+                # Use a lock to ensure thread safety when reading/writing to self._queued_urls.
+                new_urls = []
+                with self._queue_lock:
+                    for url in batch:
+                        if url not in self._queued_urls:
+                            self._queued_urls.add(url)
+                            new_urls.append(url)
+
+                # Push the filtered new URLs into the queue.
+                if new_urls:
+                    for url in new_urls:
+                        q.put(url)
+                    self.logger.info(f"Queued {len(new_urls)} new URLs. Queue size: {q.qsize()}")
+                else:
+                    # If no new links are found in the database, check if any URLs are still being processed.
+                    # If all queued/in-flight URLs are finished, and database has no more URLs, crawling is complete.
+                    with self._queue_lock:
+                        if not self._queued_urls:
+                            self.logger.info("No pending links remaining and all workers finished. Crawl complete.")
+                            self.shutdown_event.set()  # Signal workers and main thread to exit
+                            break
+
+            # Sleep briefly (0.5s) to avoid pegging CPU/Database when the queue is full.
+            # Event.wait(timeout) is used here because it is a non-blocking interruptible sleep.
+            # If shutdown_event is set during this sleep, it wakes up instantly instead of waiting out the timeout.
+            self.shutdown_event.wait(timeout=0.5)
+
+        self.logger.info("Database queue feeder thread stopped.")
+
+    def _worker_loop(self, q):
+        """Persistent worker thread loop that pulls URLs from the queue and processes them.
+
+        This acts as the Consumer. These threads run continuously until shutdown.
+        """
+        while not self.shutdown_event.is_set():
+            try:
+                # Retrieve a URL from the queue. Timeout of 1.0s ensures that workers
+                # periodically unblock to check if a shutdown has been requested.
+                url = q.get(timeout=1.0)
+            except queue.Empty:
+                continue
+
+            try:
+                # Execute the crawl, page fetch, parsing, and link extraction.
+                self.crawl_worker(url)
+            except Exception as e:
+                self.logger.error(f"Critical error during crawl execution for {url}: {e}")
+            finally:
+                # Mark the item as done to update the queue's task tracker.
+                # Remove the URL from self._queued_urls inside a lock so the feeder thread
+                # knows it is no longer in-flight and can re-crawled/re-queued if needed.
+                with self._queue_lock:
+                    self._queued_urls.discard(url)
+                q.task_done()
+
     def crawl(self):
-        """Crawl the site starting from the given URL."""
+        """Crawl the site starting from the given URL using a Producer-Consumer thread pool."""
         # Register crawler instance for centralized shutdown
         with _active_crawlers_lock:
             _active_crawlers.append(self)
@@ -219,27 +305,37 @@ class SiteCrawler:
                     )
                     self.crawl_delay = scaled_delay
 
-            # Pull pending links from the DB in bounded batches to keep memory usage flat.
-            while not self.shutdown_event.is_set():
-                batch = load_pending_links(self.database_name, self.re_crawl_time, limit=self.batch_size, logger=self.logger)
-                if not batch:
-                    self.logger.info("No pending links remaining. Crawl complete.")
-                    break
+            # Initialize a thread-safe Queue. We bound its capacity to (batch_size * 2)
+            # to limit memory overhead and prevent querying too far ahead.
+            q = queue.Queue(maxsize=self.batch_size * 2)
 
-                with ThreadPoolExecutor(max_workers=self.workers) as executor:
-                    futures = {
-                        executor.submit(self.crawl_worker, url): url
-                        for url in batch
-                    }
-                    for future in as_completed(futures):
-                        url = futures[future]
-                        try:
-                            future.result()
-                        except Exception as exc:
-                            self.logger.error(f"Worker raised an exception for {url}: {exc}")
+            # Spawn a background feeder thread (Producer) to query the SQLite DB and push to Queue
+            feeder_thread = threading.Thread(target=self._feeder_loop, args=(q,), daemon=True)
+            feeder_thread.start()
+
+            # Spawn workers (Consumers) to process URLs from the queue continuously.
+            # Using ThreadPoolExecutor is clean because it manages worker threads lifetimes.
+            # Each worker runs a persistent _worker_loop.
+            with ThreadPoolExecutor(max_workers=self.workers) as executor:
+                futures = [executor.submit(self._worker_loop, q) for _ in range(self.workers)]
+
+                # The main thread blocks on shutdown_event.wait().
+                # Wakes up when the feeder sets it (crawling complete) or when SIGINT sets it.
+                self.shutdown_event.wait()
+
+                # Cleanup: wait for worker threads to finish processing current tasks and exit
+                self.logger.info("Shutdown signal received. Waiting for worker threads to terminate...")
+                for future in futures:
+                    try:
+                        future.result()
+                    except Exception as exc:
+                        self.logger.error(f"Worker thread execution error during shutdown: {exc}")
+
+            # Wait for the feeder thread to exit
+            feeder_thread.join(timeout=5.0)
 
             if self.shutdown_event.is_set():
-                self.logger.info("Shutdown requested. Crawl stopped gracefully.")
+                self.logger.info("Crawl execution halted or completed.")
 
         finally:
             # Unregister crawler instance
