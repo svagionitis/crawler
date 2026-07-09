@@ -17,10 +17,10 @@ from datetime import datetime
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Graceful shutdown flag — set by the SIGINT handler so workers can finish
-# their current page before exiting.
-shutdown_event = threading.Event()
+_active_crawlers = []
+_active_crawlers_lock = threading.Lock()
 _original_sigint_handler = None
+
 
 def get_log_file_name(domain, logs_dir, logger=None):
     """Generate the log filename based on the domain and current datetime, and save it in the specified logs directory."""
@@ -33,263 +33,246 @@ def get_log_file_name(domain, logs_dir, logger=None):
     # Include the domain and datetime in the log filename
     return os.path.join(logs_dir, f"crawler_{domain}_{current_datetime}.log")
 
-def initialize_crawler(start_url, respect_robots, crawl_delay, logs_dir, db_dir):
-    """Initialize the crawler, including database, logging, and robots.txt parser.
 
-    Returns:
-        tuple: (database_name, robots_parser, crawl_delay, robots_delay_applied, logger)
-               robots_delay_applied is True when the crawl_delay was overridden by
-               robots.txt, so callers can enforce single-threaded mode appropriately.
-               logger is a per-domain logging.Logger instance.
-    """
-    # Parse the domain
-    domain = urlparse(start_url).netloc
+class SiteCrawler:
+    """Encapsulates the state and crawl logic for a single domain website."""
 
-    # Generate the database and log file names
-    database_name = get_database_name(domain, db_dir)
-    log_file_name = get_log_file_name(domain, logs_dir)
+    def __init__(self, start_url, respect_robots=True, no_duplicates=True,
+                 crawl_delay=30, resume=False, re_crawl_time=3,
+                 logs_dir="logs", db_dir="db", batch_size=100,
+                 workers=1, parser_engine="auto"):
+        self.start_url = start_url
+        self.respect_robots = respect_robots
+        self.no_duplicates = no_duplicates
+        self.crawl_delay = crawl_delay
+        self.resume = resume
+        self.re_crawl_time = re_crawl_time
+        self.logs_dir = logs_dir
+        self.db_dir = db_dir
+        self.batch_size = batch_size
+        self.workers = workers
+        self.parser_engine = parser_engine
 
-    # Create a per-domain named logger so parallel crawls write to separate files.
-    logger = logging.getLogger(f"crawler.{domain}")
-    logger.setLevel(logging.INFO)
-    logger.propagate = False  # Prevent messages from reaching the root logger
+        self.domain = urlparse(start_url).netloc
+        self.database_name = get_database_name(self.domain, self.db_dir)
+        self.robots_parser = None
+        self.robots_delay_applied = False
+        self.logger = None
+        self.shutdown_event = threading.Event()
 
-    # Remove any stale handlers from a previous run (e.g. when resuming)
-    for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
-        handler.close()
+    def initialize(self):
+        """Initialize the crawler: set up logging, database schemas, and robots.txt."""
+        log_file_name = get_log_file_name(self.domain, self.logs_dir)
 
-    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+        # Create a per-domain named logger so parallel crawls write to separate files.
+        self.logger = logging.getLogger(f"crawler.{self.domain}")
+        self.logger.setLevel(logging.INFO)
+        self.logger.propagate = False
 
-    file_handler = logging.FileHandler(log_file_name, encoding="utf-8")
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
+        # Remove any stale handlers from a previous run (e.g. when resuming)
+        for handler in self.logger.handlers[:]:
+            self.logger.removeHandler(handler)
+            handler.close()
 
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(formatter)
-    logger.addHandler(stream_handler)
+        formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 
-    # Initialize the database
-    init_db(database_name, logger=logger)
+        file_handler = logging.FileHandler(log_file_name, encoding="utf-8")
+        file_handler.setFormatter(formatter)
+        self.logger.addHandler(file_handler)
 
-    # Initialize robots.txt parser
-    robots_parser = None
-    robots_delay_applied = False
-    if respect_robots:
-        robots_parser = RobotFileParser()
-        robots_url = urljoin(start_url, "/robots.txt")
-        robots_content, _, robots_error_description = fetch_page(robots_url, logger=logger)
-        if robots_error_description:
-            logger.warning(f"Failed to fetch robots.txt: {robots_error_description}")
-            return database_name, None, crawl_delay, False, logger
-        try:
-            robots_parser.parse(robots_content.splitlines())
-            # Use the crawl delay from robots.txt if available
-            robots_crawl_delay = robots_parser.crawl_delay(USER_AGENT)
-            if robots_crawl_delay is not None and robots_crawl_delay > crawl_delay:
-                crawl_delay = robots_crawl_delay
-                robots_delay_applied = True
-                logger.info(f"Using crawl delay from robots.txt: {crawl_delay} seconds")
-        except Exception as e:
-            logger.warning(f"Failed to read robots.txt: {e}")
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(formatter)
+        self.logger.addHandler(stream_handler)
 
-    return database_name, robots_parser, crawl_delay, robots_delay_applied, logger
+        # Initialize database schemas and indexes
+        init_db(self.database_name, logger=self.logger)
 
-def prepare_crawl_queue(database_name, start_url, robots_parser, resume, re_crawl_time, logger):
-    """Seed the database queue with the start URL when not resuming.
+        # Initialize robots.txt parser
+        if self.respect_robots:
+            self.robots_parser = RobotFileParser()
+            robots_url = urljoin(self.start_url, "/robots.txt")
+            robots_content, _, robots_error_description = fetch_page(robots_url, logger=self.logger)
+            if robots_error_description:
+                self.logger.warning(f"Failed to fetch robots.txt: {robots_error_description}")
+                return
+            try:
+                self.robots_parser.parse(robots_content.splitlines())
+                # Use the crawl delay from robots.txt if available
+                robots_crawl_delay = self.robots_parser.crawl_delay(USER_AGENT)
+                if robots_crawl_delay is not None and robots_crawl_delay > self.crawl_delay:
+                    self.crawl_delay = robots_crawl_delay
+                    self.robots_delay_applied = True
+                    self.logger.info(f"Using crawl delay from robots.txt: {self.crawl_delay} seconds")
+            except Exception as e:
+                self.logger.warning(f"Failed to read robots.txt: {e}")
 
-    The queue is now entirely DB-backed; this function no longer returns a list.
-    """
-    if resume and not is_database_empty(database_name, logger=logger):
-        logger.info(f"Resuming from existing database: {database_name}")
-    else:
-        logger.info(f"Starting fresh crawl from: {start_url}")
-        save_links_to_db(database_name, urlparse(start_url).netloc, [start_url], robots_parser, re_crawl_time=re_crawl_time, logger=logger)
-
-def crawl_page(database_name, current_url, robots_parser, no_duplicates,
-               re_crawl_time, logger, parser_engine="auto"):
-    """Crawl a single page, fetch content, check for duplicates, and save data.
-
-    Returns:
-        tuple: (content, new_links, action)
-            - content  : raw page text, or None on failure / skip.
-            - new_links: set of same-domain URLs discovered on the page.
-            - action   : ``'skip'`` / ``'save'`` for non-fetch exits, else None.
-    """
-    # Check robots.txt
-    if robots_parser and not robots_parser.can_fetch(USER_AGENT, current_url):
-        logger.info(f"Skipping {current_url} due to robots.txt")
-        return None, set(), "skip"
-
-    # Fetch the page
-    logger.info(f"Crawling: {current_url}")
-    content, content_type, error_description = fetch_page(current_url, logger=logger)
-    if error_description:
-        # Handle failure
-        error_description_hash = compute_hash(error_description)
-        update_link_in_db(database_name, current_url, error_description, error_description_hash, status="pending", logger=logger)
-        logger.info(f"Failed to crawl {current_url}: {error_description}")
-        return None, set(), None
-
-    # Check for duplicate content using the database index.
-    # The UNIQUE index on content_hash is the authoritative guard; this
-    # pre-check avoids a wasted UPDATE when a known duplicate is detected early.
-    # update_link_in_db will catch any residual TOCTOU race via IntegrityError.
-    content_hash = compute_hash(content)
-    if no_duplicates and is_duplicate_content(database_name, content_hash, logger=logger):
-        logger.info(f"Skipping duplicate content: {current_url}")
-        return None, set(), None
-
-    # Detect HTML once using the Content-Type header or a limited prefix search of
-    # the first 1000 characters, avoiding memory-intensive full-page string copies.
-    is_html = (content_type and "html" in content_type) or (
-        content and any(tag in content[:1000].lower() for tag in ("<html", "<body", "<p", "<div"))
-    )
-    soup = BeautifulSoup(content, "html.parser") if is_html else None
-
-    # Extract links FIRST using the pre-parsed soup (non-destructive: only reads
-    # <a> tags).  This MUST run before extract_article_content when the bs4 engine
-    # is active, because bs4 calls element.decompose() on nav/footer/header nodes,
-    # which would strip those links from the soup before we can collect them.
-    new_links = extract_links(current_url, content, robots_parser, soup=soup, logger=logger) if soup else set()
-
-    # Extract article content, passing the same soup so the bs4 path skips
-    # a redundant parse (newspaper/trafilatura ignore the soup entirely).
-    if is_html:
-        extracted = extract_article_content(content, url=current_url, engine=parser_engine, soup=soup, logger=logger)
-    else:
-        extracted = {"title": None, "text": None, "authors": None, "date": None, "keywords": None, "parser_used": None}
-
-    update_link_in_db(
-        database_name, current_url, content, content_hash, status="crawled",
-        extracted_title=extracted["title"],
-        extracted_text=extracted["text"],
-        extracted_authors=extracted["authors"],
-        extracted_date=extracted["date"],
-        extracted_keywords=extracted["keywords"],
-        parser_used=extracted["parser_used"],
-        logger=logger
-    )
-
-    return content, new_links, None
-
-
-def crawl_worker(database_name, current_url, robots_parser, no_duplicates,
-                  re_crawl_time,
-                  domain, crawl_delay, logger, parser_engine="auto"):
-    """Fetch a single URL, save content, and enqueue discovered links.
-
-    Designed to be submitted to a ThreadPoolExecutor. Each worker sleeps
-    crawl_delay seconds after a real fetch so the effective request rate to
-    the server equals crawl_delay / workers (auto-scaled by crawl_site).
-
-    Returns:
-        str: The URL that was processed, for logging in the caller.
-    """
-    # Check for shutdown before starting work on this URL
-    if shutdown_event.is_set():
-        return current_url
-
-    content, new_links, action = crawl_page(
-        database_name, current_url, robots_parser,
-        no_duplicates, re_crawl_time,
-        logger=logger,
-        parser_engine=parser_engine
-    )
-    if content and action is None:
-        if new_links:
-            save_links_to_db(database_name, domain, list(new_links), robots_parser, re_crawl_time=re_crawl_time, logger=logger)
-    elif content is None and action:
-        # Robot skip or re-crawl window — no network request was made, skip delay
-        return current_url
-
-    # Respect the crawl delay after every real network request.
-    # Event.wait() blocks efficiently and wakes up instantly if a shutdown is requested.
-    logger.info(f"Waiting for {crawl_delay} seconds before the next request...")
-    shutdown_event.wait(crawl_delay)
-    return current_url
-def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume,
-               re_crawl_time, logs_dir, db_dir, batch_size, workers, parser_engine="auto"):
-    """Crawl the site starting from the given URL."""
-    # Initialize the crawler
-    database_name, robots_parser, crawl_delay, robots_delay_applied, logger = initialize_crawler(
-        start_url, respect_robots, crawl_delay, logs_dir, db_dir
-    )
-
-    # Apply worker constraints and delay auto-scaling.
-    # With N workers each sleeping D seconds, the server receives one request
-    # every D/N seconds.  To maintain the user's intended per-request interval,
-    # scale the per-worker delay up by N so the aggregate rate stays the same.
-    if workers > 1:
-        if robots_delay_applied:
-            logger.warning(
-                f"robots.txt specifies a crawl delay of {crawl_delay}s. "
-                f"Forcing --workers to 1 to honour it."
-            )
-            workers = 1
+    def prepare_queue(self):
+        """Seed the database queue with the start URL when not resuming."""
+        if self.resume and not is_database_empty(self.database_name, logger=self.logger):
+            self.logger.info(f"Resuming from existing database: {self.database_name}")
         else:
-            scaled_delay = crawl_delay * workers
-            logger.info(
-                f"Scaling crawl delay from {crawl_delay}s to {scaled_delay}s "
-                f"({workers} workers × {crawl_delay}s) to maintain server load."
-            )
-            crawl_delay = scaled_delay
+            self.logger.info(f"Starting fresh crawl from: {self.start_url}")
+            save_links_to_db(self.database_name, self.domain, [self.start_url], self.robots_parser, re_crawl_time=self.re_crawl_time, logger=self.logger)
 
-    # Seed or resume the DB queue
-    prepare_crawl_queue(database_name, start_url, robots_parser, resume, re_crawl_time, logger)
+    def crawl_page(self, current_url):
+        """Crawl a single page, fetch content, check for duplicates, and save data.
 
-    domain = urlparse(start_url).netloc
+        Returns:
+            tuple: (content, new_links, action)
+        """
+        # Check robots.txt
+        if self.robots_parser and not self.robots_parser.can_fetch(USER_AGENT, current_url):
+            self.logger.info(f"Skipping {current_url} due to robots.txt")
+            return None, set(), "skip"
 
-    # Pull pending links from the DB in bounded batches to keep memory usage flat.
-    # The executor is re-created per batch so newly discovered links are picked
-    # up by the next DB query before the next batch is dispatched.
-    while not shutdown_event.is_set():
-        batch = load_pending_links(database_name, re_crawl_time, limit=batch_size, logger=logger)
-        if not batch:
-            logger.info("No pending links remaining. Crawl complete.")
-            break
+        # Fetch the page
+        self.logger.info(f"Crawling: {current_url}")
+        content, content_type, error_description = fetch_page(current_url, logger=self.logger)
+        if error_description:
+            # Handle failure
+            error_description_hash = compute_hash(error_description)
+            update_link_in_db(self.database_name, current_url, error_description, error_description_hash, status="pending", logger=self.logger)
+            self.logger.info(f"Failed to crawl {current_url}: {error_description}")
+            return None, set(), None
 
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {
-                executor.submit(
-                    crawl_worker,
-                    database_name=database_name,
-                    current_url=url,
-                    robots_parser=robots_parser,
-                    no_duplicates=no_duplicates,
-                    re_crawl_time=re_crawl_time,
-                    domain=domain,
-                    crawl_delay=crawl_delay,
-                    logger=logger,
-                    parser_engine=parser_engine,
-                ): url
-                for url in batch
-            }
-            for future in as_completed(futures):
-                url = futures[future]
-                try:
-                    future.result()
-                except Exception as exc:
-                    logger.error(f"Worker raised an exception for {url}: {exc}")
+        # Check for duplicate content using the database index.
+        content_hash = compute_hash(content)
+        if self.no_duplicates and is_duplicate_content(self.database_name, content_hash, logger=self.logger):
+            self.logger.info(f"Skipping duplicate content: {current_url}")
+            return None, set(), None
 
-    if shutdown_event.is_set():
-        logger.info("Shutdown requested. Crawl stopped gracefully.")
+        # Detect HTML once using the Content-Type header or a limited prefix search of
+        # the first 1000 characters, avoiding memory-intensive full-page string copies.
+        is_html = (content_type and "html" in content_type) or (
+            content and any(tag in content[:1000].lower() for tag in ("<html", "<body", "<p", "<div"))
+        )
+        soup = BeautifulSoup(content, "html.parser") if is_html else None
+
+        # Extract links FIRST using the pre-parsed soup (non-destructive)
+        new_links = extract_links(current_url, content, self.robots_parser, soup=soup, logger=self.logger) if soup else set()
+
+        # Extract article content, passing the same soup so the bs4 path skips a redundant parse
+        if is_html:
+            extracted = extract_article_content(content, url=current_url, engine=self.parser_engine, soup=soup, logger=self.logger)
+        else:
+            extracted = {"title": None, "text": None, "authors": None, "date": None, "keywords": None, "parser_used": None}
+
+        update_link_in_db(
+            self.database_name, current_url, content, content_hash, status="crawled",
+            extracted_title=extracted["title"],
+            extracted_text=extracted["text"],
+            extracted_authors=extracted["authors"],
+            extracted_date=extracted["date"],
+            extracted_keywords=extracted["keywords"],
+            parser_used=extracted["parser_used"],
+            logger=self.logger
+        )
+
+        return content, new_links, None
+
+    def crawl_worker(self, current_url):
+        """Fetch a single URL, save content, and enqueue discovered links.
+
+        Designed to be submitted to a ThreadPoolExecutor.
+        """
+        # Check for shutdown before starting work on this URL
+        if self.shutdown_event.is_set():
+            return current_url
+
+        content, new_links, action = self.crawl_page(current_url)
+        if content and action is None:
+            if new_links:
+                save_links_to_db(self.database_name, self.domain, list(new_links), self.robots_parser, re_crawl_time=self.re_crawl_time, logger=self.logger)
+        elif content is None and action:
+            # Robot skip — no network request was made, skip delay
+            return current_url
+
+        # Respect the crawl delay after every real network request.
+        # Event.wait() blocks efficiently and wakes up instantly if a shutdown is requested.
+        self.logger.info(f"Waiting for {self.crawl_delay} seconds before the next request...")
+        self.shutdown_event.wait(self.crawl_delay)
+        return current_url
+
+    def crawl(self):
+        """Crawl the site starting from the given URL."""
+        # Register crawler instance for centralized shutdown
+        with _active_crawlers_lock:
+            _active_crawlers.append(self)
+
+        try:
+            self.initialize()
+            self.prepare_queue()
+
+            # Apply worker constraints and delay auto-scaling.
+            if self.workers > 1:
+                if self.robots_delay_applied:
+                    self.logger.warning(
+                        f"robots.txt specifies a crawl delay of {self.crawl_delay}s. "
+                        f"Forcing --workers to 1 to honour it."
+                    )
+                    self.workers = 1
+                else:
+                    scaled_delay = self.crawl_delay * self.workers
+                    self.logger.info(
+                        f"Scaling crawl delay from {self.crawl_delay}s to {scaled_delay}s "
+                        f"({self.workers} workers × {self.crawl_delay}s) to maintain server load."
+                    )
+                    self.crawl_delay = scaled_delay
+
+            # Pull pending links from the DB in bounded batches to keep memory usage flat.
+            while not self.shutdown_event.is_set():
+                batch = load_pending_links(self.database_name, self.re_crawl_time, limit=self.batch_size, logger=self.logger)
+                if not batch:
+                    self.logger.info("No pending links remaining. Crawl complete.")
+                    break
+
+                with ThreadPoolExecutor(max_workers=self.workers) as executor:
+                    futures = {
+                        executor.submit(self.crawl_worker, url): url
+                        for url in batch
+                    }
+                    for future in as_completed(futures):
+                        url = futures[future]
+                        try:
+                            future.result()
+                        except Exception as exc:
+                            self.logger.error(f"Worker raised an exception for {url}: {exc}")
+
+            if self.shutdown_event.is_set():
+                self.logger.info("Shutdown requested. Crawl stopped gracefully.")
+
+        finally:
+            # Unregister crawler instance
+            with _active_crawlers_lock:
+                if self in _active_crawlers:
+                    _active_crawlers.remove(self)
+
 
 def _handle_sigint(signum, frame):
-    """Handle Ctrl+C by setting the shutdown event.
+    """Handle Ctrl+C by setting the shutdown event on all active crawlers.
 
     The first Ctrl+C triggers a graceful shutdown — in-flight pages finish,
     no new work is started.  A second Ctrl+C restores the original handler
     and re-raises, causing an immediate (hard) exit.
     """
     global _original_sigint_handler
-    if shutdown_event.is_set():
-        # Second Ctrl+C — restore original handler and re-raise for hard exit
+
+    already_shutting_down = False
+    with _active_crawlers_lock:
+        if _active_crawlers and all(c.shutdown_event.is_set() for c in _active_crawlers):
+            already_shutting_down = True
+
+    if already_shutting_down or not _active_crawlers:
+        # Second Ctrl+C or no active crawlers — restore original handler and re-raise for hard exit
         signal.signal(signal.SIGINT, _original_sigint_handler)
         print("\nForced shutdown. Exiting immediately.")
         raise KeyboardInterrupt
+
     print("\nShutdown requested (Ctrl+C). Finishing in-flight pages … press Ctrl+C again to force quit.")
-    shutdown_event.set()
+    with _active_crawlers_lock:
+        for crawler in _active_crawlers:
+            crawler.shutdown_event.set()
+
 
 def main():
     """Main function to handle command-line arguments and start crawling."""
@@ -381,7 +364,7 @@ def main():
 
     if args.url:
         # Start crawling the single URL
-        crawl_site(
+        crawler = SiteCrawler(
             start_url=args.url,
             respect_robots=args.respect_robots,
             no_duplicates=args.no_duplicates,
@@ -392,8 +375,9 @@ def main():
             db_dir=args.db_dir,
             batch_size=args.batch_size,
             workers=args.workers,
-            parser_engine=args.parser,
+            parser_engine=args.parser
         )
+        crawler.crawl()
     else:
         # Load and validate configuration file
         try:
@@ -411,41 +395,39 @@ def main():
             if "url" not in site:
                 parser.error(f"Item at index {i} in configuration file is missing the required 'url' field.")
 
-        # Build the per-site argument sets
-        site_configs = []
+        # Build the per-site crawler instances
+        crawlers = []
         for site in config_data:
-            site_configs.append({
-                "start_url":     site["url"],
-                "respect_robots": site.get("respect_robots", args.respect_robots),
-                "no_duplicates":  site.get("no_duplicates",  args.no_duplicates),
-                "crawl_delay":    site.get("crawl_delay",    args.crawl_delay),
-                "resume":         site.get("resume",         args.resume),
-                "re_crawl_time":  site.get("re_crawl_time",  args.re_crawl_time),
-                "logs_dir":       site.get("logs_dir",       args.logs_dir),
-                "db_dir":         site.get("db_dir",         args.db_dir),
-                "batch_size":     site.get("batch_size",     args.batch_size),
-                "workers":        site.get("workers",        args.workers),
-                "parser_engine":  site.get("parser",         args.parser),
-            })
+            crawler = SiteCrawler(
+                start_url=site["url"],
+                respect_robots=site.get("respect_robots", args.respect_robots),
+                no_duplicates=site.get("no_duplicates", args.no_duplicates),
+                crawl_delay=site.get("crawl_delay", args.crawl_delay),
+                resume=site.get("resume", args.resume),
+                re_crawl_time=site.get("re_crawl_time", args.re_crawl_time),
+                logs_dir=site.get("logs_dir", args.logs_dir),
+                db_dir=site.get("db_dir", args.db_dir),
+                batch_size=site.get("batch_size", args.batch_size),
+                workers=site.get("workers", args.workers),
+                parser_engine=site.get("parser", args.parser)
+            )
+            crawlers.append(crawler)
 
-        def _crawl_site_task(cfg):
+        def _crawl_site_task(crawler_instance):
             """Thread entry point: crawl one site and return its URL."""
-            print(f"\n=== Starting crawl for: {cfg['start_url']} ===")
+            print(f"\n=== Starting crawl for: {crawler_instance.start_url} ===")
             try:
-                crawl_site(**cfg)
+                crawler_instance.crawl()
             except Exception as e:
-                print(
-                    f"Failed to crawl site {cfg['start_url']}: {e}"
-                )
-            return cfg["start_url"]
+                print(f"Failed to crawl site {crawler_instance.start_url}: {e}")
+            return crawler_instance.start_url
 
-        # Run all site crawls in parallel — each site has its own DB and log
-        # file so there is no shared mutable state between threads at this level.
-        print(f"\nLaunching {len(site_configs)} site crawl(s) in parallel...")
-        with ThreadPoolExecutor(max_workers=len(site_configs)) as site_executor:
+        # Run all site crawls in parallel
+        print(f"\nLaunching {len(crawlers)} site crawl(s) in parallel...")
+        with ThreadPoolExecutor(max_workers=len(crawlers)) as site_executor:
             site_futures = {
-                site_executor.submit(_crawl_site_task, cfg): cfg["start_url"]
-                for cfg in site_configs
+                site_executor.submit(_crawl_site_task, crawler): crawler.start_url
+                for crawler in crawlers
             }
             for future in as_completed(site_futures):
                 url = site_futures[future]
