@@ -125,6 +125,16 @@ def ensure_directory_exists(directory, logger=None):
 
 def extract_with_newspaper(html_content, url, logger=None):
     """Extract news article fields using newspaper3k."""
+    import tempfile
+    # newspaper3k does not create its own temp directory on Windows, which
+    # causes a WinError 3 ("path not found") on first use.  Create it here
+    # so the library can always find it — os.makedirs is a no-op if it
+    # already exists.
+    _newspaper_tmp = os.path.join(
+        tempfile.gettempdir(), ".newspaper_scraper", "article_resources"
+    )
+    os.makedirs(_newspaper_tmp, exist_ok=True)
+
     from newspaper import Article
     article_url = url if url else "https://example.com"
     article = Article(article_url)
