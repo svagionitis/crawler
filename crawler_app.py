@@ -11,6 +11,7 @@ from database import init_db, save_links_to_db, update_link_in_db, \
     load_pending_links, get_database_name, is_database_empty, check_re_crawl, \
     is_duplicate_content
 from utils import fetch_page, extract_links, compute_hash, ensure_directory_exists, extract_article_content
+from bs4 import BeautifulSoup
 from config import USER_AGENT
 from datetime import datetime
 import threading
@@ -109,19 +110,22 @@ def crawl_page(database_name, current_url, robots_parser, no_duplicates,
                re_crawl_time, logger, parser_engine="auto"):
     """Crawl a single page, fetch content, check for duplicates, and save data.
 
-    Args:
-        logger (logging.Logger): Per-domain logger instance.
+    Returns:
+        tuple: (content, new_links, action)
+            - content  : raw page text, or None on failure / skip.
+            - new_links: set of same-domain URLs discovered on the page.
+            - action   : ``'skip'`` / ``'save'`` for non-fetch exits, else None.
     """
     # Check robots.txt
     if robots_parser and not robots_parser.can_fetch(USER_AGENT, current_url):
         logger.info(f"Skipping {current_url} due to robots.txt")
-        return None, "skip"
+        return None, set(), "skip"
 
     # Check if the link should be re-crawled
     if not check_re_crawl(database_name, current_url, re_crawl_time, logger=logger):
         logger.info(f"Link {current_url} was crawled recently. Updating date_inserted and setting status to pending.")
         save_links_to_db(database_name, urlparse(current_url).netloc, [current_url], robots_parser, status="pending", logger=logger)
-        return None, "save"
+        return None, set(), "save"
 
     # Fetch the page
     logger.info(f"Crawling: {current_url}")
@@ -131,7 +135,7 @@ def crawl_page(database_name, current_url, robots_parser, no_duplicates,
         error_description_hash = compute_hash(error_description)
         update_link_in_db(database_name, current_url, error_description, error_description_hash, status="pending", logger=logger)
         logger.info(f"Failed to crawl {current_url}: {error_description}")
-        return None, None
+        return None, set(), None
 
     # Check for duplicate content using the database index.
     # The UNIQUE index on content_hash is the authoritative guard; this
@@ -140,14 +144,25 @@ def crawl_page(database_name, current_url, robots_parser, no_duplicates,
     content_hash = compute_hash(content)
     if no_duplicates and is_duplicate_content(database_name, content_hash, logger=logger):
         logger.info(f"Skipping duplicate content: {current_url}")
-        return None, None
+        return None, set(), None
 
-    # Save content and mark as crawled
+    # Detect HTML once and parse into a soup object that is shared between link
+    # extraction and content extraction — avoiding two full HTML parses per page.
     is_html = ("<html" in content.lower() or "<body" in content.lower() or "<p" in content.lower() or "<div" in content.lower())
+    soup = BeautifulSoup(content, "html.parser") if is_html else None
+
+    # Extract links FIRST using the pre-parsed soup (non-destructive: only reads
+    # <a> tags).  This MUST run before extract_article_content when the bs4 engine
+    # is active, because bs4 calls element.decompose() on nav/footer/header nodes,
+    # which would strip those links from the soup before we can collect them.
+    new_links = extract_links(current_url, content, robots_parser, soup=soup, logger=logger) if soup else set()
+
+    # Extract article content, passing the same soup so the bs4 path skips
+    # a redundant parse (newspaper/trafilatura ignore the soup entirely).
     if is_html:
-        extracted = extract_article_content(content, url=current_url, engine=parser_engine, logger=logger)
+        extracted = extract_article_content(content, url=current_url, engine=parser_engine, soup=soup, logger=logger)
     else:
-        extracted = {"title": None, "text": None, "authors": None, "date": None, "keywords": None}
+        extracted = {"title": None, "text": None, "authors": None, "date": None, "keywords": None, "parser_used": None}
 
     update_link_in_db(
         database_name, current_url, content, content_hash, status="crawled",
@@ -160,12 +175,8 @@ def crawl_page(database_name, current_url, robots_parser, no_duplicates,
         logger=logger
     )
 
-    return content, None
+    return content, new_links, None
 
-def process_new_links(current_url, content, robots_parser, logger):
-    """Process new links extracted from a page and add them to the crawl queue."""
-    new_links = extract_links(current_url, content, robots_parser, logger=logger)
-    return new_links
 
 def crawl_worker(database_name, current_url, robots_parser, no_duplicates,
                   re_crawl_time,
@@ -183,14 +194,13 @@ def crawl_worker(database_name, current_url, robots_parser, no_duplicates,
     if shutdown_event.is_set():
         return current_url
 
-    content, action = crawl_page(
+    content, new_links, action = crawl_page(
         database_name, current_url, robots_parser,
         no_duplicates, re_crawl_time,
         logger=logger,
         parser_engine=parser_engine
     )
     if content and action is None:
-        new_links = process_new_links(current_url, content, robots_parser, logger)
         if new_links:
             save_links_to_db(database_name, domain, list(new_links), robots_parser, logger=logger)
     elif content is None and action:

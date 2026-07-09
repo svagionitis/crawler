@@ -93,16 +93,24 @@ def fetch_page(url, max_retries=3, initial_timeout=60, logger=None):
 
     return None, "Max retries reached without success"
 
-def extract_links(base_url, html_content, robots_parser, logger=None):
-    """Extract all links from the HTML content that belong to the same domain and are allowed by robots.txt."""
+def extract_links(base_url, html_content, robots_parser, soup=None, logger=None):
+    """Extract all links from the HTML content that belong to the same domain and are allowed by robots.txt.
+
+    Args:
+        soup: Optional pre-parsed BeautifulSoup object.  When provided,
+              ``html_content`` is not parsed again, eliminating a redundant
+              pass through the HTML parser.
+    """
     if logger is None:
         logger = logging.getLogger(__name__)
-    soup = BeautifulSoup(html_content, "html.parser")
+    if soup is None:
+        soup = BeautifulSoup(html_content, "html.parser")
+    base_netloc = urlparse(base_url).netloc  # hoisted outside the loop — urlparse is not free
     links = set()
     for a_tag in soup.find_all("a", href=True):
         try:
             link = urljoin(base_url, a_tag["href"])
-            if urlparse(link).netloc == urlparse(base_url).netloc:
+            if urlparse(link).netloc == base_netloc:
                 if not robots_parser or robots_parser.can_fetch(USER_AGENT, link):
                     links.add(link)
                 else:
@@ -192,9 +200,18 @@ def extract_with_trafilatura(html_content, logger=None):
 
     return title, text, authors, date_str, keywords_str
 
-def extract_with_bs4(html_content, logger=None):
-    """Extract news article fields using standard BeautifulSoup (boilerplate removal fallback)."""
-    soup = BeautifulSoup(html_content, "html.parser")
+def extract_with_bs4(html_content, soup=None, logger=None):
+    """Extract news article fields using standard BeautifulSoup (boilerplate removal fallback).
+
+    Args:
+        soup: Optional pre-parsed BeautifulSoup object.  When provided,
+              ``html_content`` is not parsed again.  **Note:** this function
+              calls ``element.decompose()`` on boilerplate tags, modifying
+              the soup in-place.  Callers must extract links *before* passing
+              the soup here, as nav/footer/header links will be removed.
+    """
+    if soup is None:
+        soup = BeautifulSoup(html_content, "html.parser")
 
     title = None
     if soup.title and soup.title.string:
@@ -248,7 +265,7 @@ def extract_with_bs4(html_content, logger=None):
 
     return title, text, authors, date_str, keywords_str
 
-def extract_article_content(html_content, url=None, engine="auto", logger=None):
+def extract_article_content(html_content, url=None, engine="auto", soup=None, logger=None):
     """
     Extract the main content and metadata of an article from HTML.
 
@@ -256,6 +273,10 @@ def extract_article_content(html_content, url=None, engine="auto", logger=None):
         html_content (str): The HTML content of the page.
         url (str | None): The URL of the page (helps newspaper3k identify details).
         engine (str): The parser engine ('auto', 'newspaper', 'trafilatura', 'bs4').
+        soup: Optional pre-parsed BeautifulSoup object passed through to the bs4
+              extraction path, avoiding a redundant parse.  Ignored by the
+              newspaper and trafilatura engines.  When provided, the caller must
+              have already extracted links from the soup (see extract_with_bs4).
         logger: Optional logger instance. Falls back to module-level logger.
 
     Returns:
@@ -290,7 +311,7 @@ def extract_article_content(html_content, url=None, engine="auto", logger=None):
                     title, text, authors, date_str, keywords_str = extract_with_trafilatura(html_content, logger=logger)
                     actual_engine = "trafilatura"
                 else:
-                    title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, logger=logger)
+                    title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, soup=soup, logger=logger)
                     actual_engine = "bs4"
 
         elif engine == "trafilatura":
@@ -299,22 +320,22 @@ def extract_article_content(html_content, url=None, engine="auto", logger=None):
                 actual_engine = "trafilatura"
             else:
                 logger.warning("trafilatura is selected but not installed. Falling back to bs4.")
-                title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, logger=logger)
+                title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, soup=soup, logger=logger)
                 actual_engine = "bs4"
 
         elif engine == "bs4":
-            title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, logger=logger)
+            title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, soup=soup, logger=logger)
             actual_engine = "bs4"
 
         else:
             logger.error(f"Unknown parser engine '{engine}'. Falling back to bs4.")
-            title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, logger=logger)
+            title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, soup=soup, logger=logger)
             actual_engine = "bs4"
 
     except Exception as e:
         logger.error(f"Error during content extraction with engine {engine}: {e}. Falling back to bs4.")
         try:
-            title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, logger=logger)
+            title, text, authors, date_str, keywords_str = extract_with_bs4(html_content, soup=soup, logger=logger)
             actual_engine = "bs4"
         except Exception as e_fallback:
             logger.error(f"Critical error in fallback bs4 parser: {e_fallback}")
