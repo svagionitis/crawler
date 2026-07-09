@@ -157,11 +157,17 @@ def ensure_directory_exists(directory, logger=None):
         os.makedirs(directory)
         logger.info(f"Created directory: {directory}")
 
-def extract_article_content(html_content, url=None, engine="auto", soup=None, logger=None):
+def extract_article_content(html_content, url=None, engine="auto", soup=None, normalize_whitespace=True, logger=None):
     """
     Extract the main content and metadata of an article from HTML.
 
     Delegates to the Strategy Pattern implementations in extractors.py.
     """
     extractor = get_extractor(engine)
-    return extractor.extract(html_content, url=url, soup=soup, logger=logger)
+    result = extractor.extract(html_content, url=url, soup=soup, logger=logger)
+
+    if normalize_whitespace and result.get("text"):
+        # Split on any whitespace sequence (spaces, tabs, newlines) and rejoin with a single space.
+        result["text"] = " ".join(result["text"].split())
+
+    return result

@@ -13,7 +13,7 @@ from database import init_db, save_links_to_db, update_link_in_db, \
     is_duplicate_content
 from utils import fetch_page, extract_links, compute_hash, ensure_directory_exists, extract_article_content
 from bs4 import BeautifulSoup
-from config import USER_AGENT
+from config import USER_AGENT, NORMALIZE_WHITESPACE
 from datetime import datetime
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -41,7 +41,7 @@ class SiteCrawler:
     def __init__(self, start_url, respect_robots=True, no_duplicates=True,
                  crawl_delay=30, resume=False, re_crawl_time=3,
                  logs_dir="logs", db_dir="db", batch_size=100,
-                 workers=1, parser_engine="auto"):
+                 workers=1, parser_engine="auto", normalize_whitespace=True):
         self.start_url = start_url
         self.respect_robots = respect_robots
         self.no_duplicates = no_duplicates
@@ -53,6 +53,7 @@ class SiteCrawler:
         self.batch_size = batch_size
         self.workers = workers
         self.parser_engine = parser_engine
+        self.normalize_whitespace = normalize_whitespace
 
         self.domain = urlparse(start_url).netloc
         self.database_name = get_database_name(self.domain, self.db_dir)
@@ -160,7 +161,7 @@ class SiteCrawler:
 
         # Extract article content, passing the same soup so the bs4 path skips a redundant parse
         if is_html:
-            extracted = extract_article_content(content, url=current_url, engine=self.parser_engine, soup=soup, logger=self.logger)
+            extracted = extract_article_content(content, url=current_url, engine=self.parser_engine, soup=soup, normalize_whitespace=self.normalize_whitespace, logger=self.logger)
         else:
             extracted = {"title": None, "text": None, "authors": None, "date": None, "keywords": None, "parser_used": None}
 
@@ -450,6 +451,13 @@ def main():
             "'bs4' (uses BeautifulSoup fallback)."
         ),
     )
+    parser.add_argument(
+        "--no-normalize-whitespace",
+        dest="normalize_whitespace",
+        action="store_false",
+        help="Preserve raw whitespaces (newlines, tabs) in the extracted text.",
+    )
+    parser.set_defaults(normalize_whitespace=NORMALIZE_WHITESPACE)
     args = parser.parse_args()
 
     # Validate mutual exclusivity of --url and --config
@@ -471,7 +479,8 @@ def main():
             db_dir=args.db_dir,
             batch_size=args.batch_size,
             workers=args.workers,
-            parser_engine=args.parser
+            parser_engine=args.parser,
+            normalize_whitespace=args.normalize_whitespace
         )
         crawler.crawl()
     else:
@@ -505,7 +514,8 @@ def main():
                 db_dir=site.get("db_dir", args.db_dir),
                 batch_size=site.get("batch_size", args.batch_size),
                 workers=site.get("workers", args.workers),
-                parser_engine=site.get("parser", args.parser)
+                parser_engine=site.get("parser", args.parser),
+                normalize_whitespace=site.get("normalize_whitespace", args.normalize_whitespace)
             )
             crawlers.append(crawler)
 
