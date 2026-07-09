@@ -259,7 +259,7 @@ class SimilarityIndexer:
         if not self.sync:
             with _workers_lock:
                 if self.db_path not in _active_workers:
-                    job_queue = queue.Queue()
+                    job_queue = queue.Queue(maxsize=500)
                     t = threading.Thread(
                         target=_similarity_worker_loop,
                         args=(self.db_path, job_queue),
