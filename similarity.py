@@ -51,6 +51,40 @@ def init_similarity_db(db_path, logger=None):
             )
         """)
 
+        # Create LSH buckets table and index
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS lsh_buckets (
+                band_id INTEGER NOT NULL,
+                bucket_hash TEXT NOT NULL,
+                url TEXT NOT NULL,
+                PRIMARY KEY (band_id, bucket_hash, url)
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_lsh_buckets_url ON lsh_buckets (url)")
+
+        # Auto-migration: Populate lsh_buckets if it is empty but global_signatures has rows
+        cursor.execute("SELECT COUNT(*) FROM lsh_buckets")
+        lsh_count = cursor.fetchone()[0]
+        if lsh_count == 0:
+            cursor.execute("SELECT url, text_signature FROM global_signatures")
+            rows = cursor.fetchall()
+            if rows:
+                logger.info(f"Auto-migration: building LSH index for {len(rows)} existing signatures...")
+                band_rows = []
+                for url, sig in rows:
+                    if len(sig) == 512:  # 128 integers * 4 bytes
+                        sig_integers = struct.unpack('<128I', sig)
+                        for i in range(16):
+                            band_ints = sig_integers[i * 8 : (i + 1) * 8]
+                            band_hash = hashlib.md5(struct.pack('<8I', *band_ints)).hexdigest()
+                            band_rows.append((i, band_hash, url))
+                if band_rows:
+                    cursor.executemany("""
+                        INSERT INTO lsh_buckets (band_id, bucket_hash, url)
+                        VALUES (?, ?, ?)
+                    """, band_rows)
+                logger.info("Auto-migration: LSH index build complete.")
+
 
 def compute_minhash(text, num_permutations=128):
     """Compute 128-integer MinHash signature of clean text using character 3-grams (shingles)."""
@@ -121,14 +155,29 @@ def _similarity_worker_loop(db_path, job_queue):
             logger = logging.getLogger(job["logger_name"])
 
             sig = compute_minhash(extracted_text)
+            sig_integers = struct.unpack('<128I', sig)
+            bands = []
+            for i in range(16):
+                band_ints = sig_integers[i * 8 : (i + 1) * 8]
+                band_hash = hashlib.md5(struct.pack('<8I', *band_ints)).hexdigest()
+                bands.append((i, band_hash))
+
+            # Query candidate signatures that share at least one LSH bucket (band collision)
+            clauses = ["(l.band_id = ? AND l.bucket_hash = ?)"] * len(bands)
+            query_where = " OR ".join(clauses)
+            sql = f"""
+                SELECT DISTINCT g.url, g.domain, g.title, g.date_crawled, g.text_signature
+                FROM global_signatures g
+                JOIN lsh_buckets l ON g.url = l.url
+                WHERE g.url != ? AND ({query_where})
+            """
+            params = [url]
+            for band_id, band_hash in bands:
+                params.extend([band_id, band_hash])
+
             matches = []
             with conn:
-                # Query existing signatures to compare.
-                # Performance Optimization: Only load metadata to avoid memory-intensive HTML content strings.
-                cursor = conn.execute(
-                    "SELECT url, domain, title, date_crawled, text_signature FROM global_signatures WHERE url != ?",
-                    (url,)
-                )
+                cursor = conn.execute(sql, tuple(params))
 
                 while True:
                     rows = cursor.fetchmany(1000)
@@ -150,6 +199,14 @@ def _similarity_worker_loop(db_path, job_queue):
                     INSERT OR REPLACE INTO global_signatures (domain, url, title, html_content, extracted_text, date_crawled, text_signature)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (domain, url, title, html_content, extracted_text, date_crawled, sig))
+
+                # Delete existing LSH bands for this URL and write new ones
+                conn.execute("DELETE FROM lsh_buckets WHERE url = ?", (url,))
+                band_rows = [(band_id, band_hash, url) for band_id, band_hash in bands]
+                conn.executemany("""
+                    INSERT INTO lsh_buckets (band_id, bucket_hash, url)
+                    VALUES (?, ?, ?)
+                """, band_rows)
 
                 # Record plagiarism matching pairs
                 for match in matches:
@@ -213,13 +270,30 @@ class SimilarityIndexer:
 
         if self.sync:
             sig = compute_minhash(extracted_text)
+            sig_integers = struct.unpack('<128I', sig)
+            bands = []
+            for i in range(16):
+                band_ints = sig_integers[i * 8 : (i + 1) * 8]
+                band_hash = hashlib.md5(struct.pack('<8I', *band_ints)).hexdigest()
+                bands.append((i, band_hash))
+
+            # Query candidate signatures that share at least one LSH bucket (band collision)
+            clauses = ["(l.band_id = ? AND l.bucket_hash = ?)"] * len(bands)
+            query_where = " OR ".join(clauses)
+            sql = f"""
+                SELECT DISTINCT g.url, g.domain, g.title, g.date_crawled, g.text_signature
+                FROM global_signatures g
+                JOIN lsh_buckets l ON g.url = l.url
+                WHERE g.url != ? AND ({query_where})
+            """
+            params = [url]
+            for band_id, band_hash in bands:
+                params.extend([band_id, band_hash])
+
             conn = get_connection(self.db_path)
             matches = []
             with conn:
-                cursor = conn.execute(
-                    "SELECT url, domain, title, date_crawled, text_signature FROM global_signatures WHERE url != ?",
-                    (url,)
-                )
+                cursor = conn.execute(sql, tuple(params))
 
                 while True:
                     rows = cursor.fetchmany(1000)
@@ -236,10 +310,19 @@ class SimilarityIndexer:
                                 "score": score
                             })
 
+                # Save the new signature and clean text + html to global index database
                 conn.execute("""
                     INSERT OR REPLACE INTO global_signatures (domain, url, title, html_content, extracted_text, date_crawled, text_signature)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (domain, url, title, html_content, extracted_text, date_crawled, sig))
+
+                # Delete existing LSH bands for this URL and write new ones
+                conn.execute("DELETE FROM lsh_buckets WHERE url = ?", (url,))
+                band_rows = [(band_id, band_hash, url) for band_id, band_hash in bands]
+                conn.executemany("""
+                    INSERT INTO lsh_buckets (band_id, bucket_hash, url)
+                    VALUES (?, ?, ?)
+                """, band_rows)
 
                 for match in matches:
                     conn.execute("""
