@@ -31,7 +31,7 @@ A lightweight, polite web crawler written in Python that scrapes news sites and 
 - **Auto-scaled rate-limiting** — automatically scales individual worker delays to keep the overall request rate to the server safe and unchanged.
 - **Resume support** — loads `pending` links from an existing SQLite database so interrupted runs can continue.
 - **Re-crawl window** — skips pages crawled within a configurable time window (default: 3 hours) to avoid hammering the same URL.
-- **Duplicate detection** — optional SHA-256 content-hash check prevents storing identical pages more than once per session.
+- **Duplicate detection** — optional SHA-256 content-hash check prevents storing identical pages more than once. Deduplication is enforced at the database level via a `UNIQUE` index on `content_hash`, so it persists across resumed runs.
 - **Binary content handling** — non-text responses (images, PDFs, etc.) are stored Base64-encoded.
 - **Retry with exponential backoff** — up to 3 retries on timeouts and 504 Gateway Timeout errors.
 - **Domain-scoped crawl** — only follows links that share the same `netloc` as the seed URL.
@@ -279,10 +279,33 @@ CREATE TABLE crawled_data (
 );
 
 -- Indexes for fast queue queries
-CREATE INDEX idx_link          ON crawled_data (link);
-CREATE INDEX idx_status        ON crawled_data (status);
-CREATE INDEX idx_link_status   ON crawled_data (link, status);
+CREATE INDEX        idx_link          ON crawled_data (link);
+CREATE INDEX        idx_status        ON crawled_data (status);
+CREATE INDEX        idx_link_status   ON crawled_data (link, status);
+-- Unique index for DB-level duplicate detection (NULLs are exempt)
+CREATE UNIQUE INDEX idx_content_hash  ON crawled_data (content_hash);
 ```
+
+> **Migration note for existing databases**
+>
+> When the crawler starts against a database that was created before this
+> change, `init_db` runs `CREATE UNIQUE INDEX IF NOT EXISTS …` automatically.
+> This will **fail** if the database already contains rows with duplicate
+> `content_hash` values (a data-consistency issue from a previous bug).
+> If you see a `UNIQUE constraint failed` error on startup, clean up the
+> duplicates first with:
+>
+> ```sql
+> DELETE FROM crawled_data
+> WHERE id NOT IN (
+>     SELECT MIN(id)
+>     FROM   crawled_data
+>     WHERE  content_hash IS NOT NULL
+>     GROUP  BY content_hash
+> );
+> ```
+>
+> Then re-run the crawler — `init_db` will create the index successfully.
 
 **Status lifecycle:**
 

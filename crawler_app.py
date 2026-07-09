@@ -8,7 +8,8 @@ import json
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 from database import init_db, save_links_to_db, update_link_in_db, \
-    load_pending_links, get_database_name, is_database_empty, check_re_crawl
+    load_pending_links, get_database_name, is_database_empty, check_re_crawl, \
+    is_duplicate_content
 from utils import fetch_page, extract_links, compute_hash, ensure_directory_exists, extract_article_content
 from config import USER_AGENT
 from datetime import datetime
@@ -105,13 +106,10 @@ def prepare_crawl_queue(database_name, start_url, robots_parser, resume, logger)
         save_links_to_db(database_name, urlparse(start_url).netloc, [start_url], robots_parser, logger=logger)
 
 def crawl_page(database_name, current_url, robots_parser, no_duplicates,
-               visited_hashes, visited_hashes_lock, re_crawl_time, logger, parser_engine="auto"):
+               re_crawl_time, logger, parser_engine="auto"):
     """Crawl a single page, fetch content, check for duplicates, and save data.
 
     Args:
-        visited_hashes_lock (threading.Lock): Acquired atomically around the
-            hash check-and-add to prevent TOCTOU races in multi-threaded mode.
-            Always provided; only contended when --no-duplicates is active.
         logger (logging.Logger): Per-domain logger instance.
     """
     # Check robots.txt
@@ -135,16 +133,14 @@ def crawl_page(database_name, current_url, robots_parser, no_duplicates,
         logger.info(f"Failed to crawl {current_url}: {error_description}")
         return None, None
 
-    # Compute hash and check for duplicates.
-    # The lock makes the check-and-add atomic, preventing two threads from both
-    # seeing a miss and both saving the same content (TOCTOU race).
+    # Check for duplicate content using the database index.
+    # The UNIQUE index on content_hash is the authoritative guard; this
+    # pre-check avoids a wasted UPDATE when a known duplicate is detected early.
+    # update_link_in_db will catch any residual TOCTOU race via IntegrityError.
     content_hash = compute_hash(content)
-    if no_duplicates:
-        with visited_hashes_lock:
-            if content_hash in visited_hashes:
-                logger.info(f"Skipping duplicate content: {current_url}")
-                return None, None
-            visited_hashes.add(content_hash)
+    if no_duplicates and is_duplicate_content(database_name, content_hash, logger=logger):
+        logger.info(f"Skipping duplicate content: {current_url}")
+        return None, None
 
     # Save content and mark as crawled
     is_html = ("<html" in content.lower() or "<body" in content.lower() or "<p" in content.lower() or "<div" in content.lower())
@@ -171,7 +167,7 @@ def process_new_links(current_url, content, robots_parser, logger):
     return new_links
 
 def crawl_worker(database_name, current_url, robots_parser, no_duplicates,
-                  visited_hashes, visited_hashes_lock, re_crawl_time,
+                  re_crawl_time,
                   domain, crawl_delay, logger, parser_engine="auto"):
     """Fetch a single URL, save content, and enqueue discovered links.
 
@@ -188,7 +184,7 @@ def crawl_worker(database_name, current_url, robots_parser, no_duplicates,
 
     content, action = crawl_page(
         database_name, current_url, robots_parser,
-        no_duplicates, visited_hashes, visited_hashes_lock, re_crawl_time,
+        no_duplicates, re_crawl_time,
         logger=logger,
         parser_engine=parser_engine
     )
@@ -239,10 +235,6 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume,
     # Seed or resume the DB queue
     prepare_crawl_queue(database_name, start_url, robots_parser, resume, logger)
 
-    # Shared state for duplicate detection (lock prevents TOCTOU race)
-    visited_hashes = set()
-    visited_hashes_lock = threading.Lock()
-
     domain = urlparse(start_url).netloc
 
     # Pull pending links from the DB in bounded batches to keep memory usage flat.
@@ -262,8 +254,6 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume,
                     current_url=url,
                     robots_parser=robots_parser,
                     no_duplicates=no_duplicates,
-                    visited_hashes=visited_hashes,
-                    visited_hashes_lock=visited_hashes_lock,
                     re_crawl_time=re_crawl_time,
                     domain=domain,
                     crawl_delay=crawl_delay,

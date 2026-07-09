@@ -4,6 +4,7 @@ import logging
 from config import USER_AGENT
 from utils import ensure_directory_exists
 import os
+from typing import Optional
 
 
 def get_database_name(domain, db_dir, logger=None):
@@ -48,6 +49,10 @@ def init_db(database_name, logger=None):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_status ON crawled_data (status)")
         # Create an index on the link, status columns
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_link_status ON crawled_data (link, status)")
+        # Unique index on content_hash for DB-level duplicate detection.
+        # SQLite treats each NULL as distinct, so pending/failed rows (where
+        # content_hash IS NULL) are never affected by this constraint.
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_content_hash ON crawled_data (content_hash)")
 
         # Run migrations dynamically for existing databases
         cursor.execute("PRAGMA table_info(crawled_data)")
@@ -114,8 +119,13 @@ def save_links_to_db(database_name, domain, links, robots_parser, status="pendin
 
 def update_link_in_db(database_name, link, content, content_hash, status="crawled",
                       extracted_title=None, extracted_text=None, extracted_authors=None,
-                      extracted_date=None, extracted_keywords=None, logger=None):
-    """Update a link in the database with content, hash, date_crawled, parsed metadata, and mark it with the given status."""
+                      extracted_date=None, extracted_keywords=None, logger=None) -> bool:
+    """Update a link in the database with content, hash, date_crawled, parsed metadata, and mark it with the given status.
+
+    Returns:
+        True on success, False if the update was rejected due to a duplicate
+        content_hash (IntegrityError from the UNIQUE index).
+    """
     if logger is None:
         logger = logging.getLogger(__name__)
     try:
@@ -135,8 +145,15 @@ def update_link_in_db(database_name, link, content, content_hash, status="crawle
             )
             conn.commit()
             logger.info(f"Updated link in database: {link}")
+            return True
+    except sqlite3.IntegrityError:
+        # Another row with the same content_hash was committed between our
+        # duplicate-check and this UPDATE (TOCTOU race in multi-threaded mode).
+        logger.info(f"Skipping duplicate content (concurrent write race): {link}")
+        return False
     except sqlite3.Error as e:
         logger.error(f"Database error while updating link: {e}")
+        return False
 
 def load_pending_links(database_name, limit=None, logger=None):
     """Load pending links from the database.
@@ -208,3 +225,33 @@ def check_re_crawl(database_name, link, re_crawl_time, logger=None):
     except sqlite3.Error as e:
         logger.error(f"Failed to check re-crawl status for link {link}: {e}")
         return True  # Assume re-crawl if there's an error
+
+
+def is_duplicate_content(database_name, content_hash: str, logger=None) -> bool:
+    """Check whether a page with the given content_hash has already been saved.
+
+    This replaces the in-memory ``visited_hashes`` set, letting the database
+    be the single source of truth.  The lookup is fast because
+    ``idx_content_hash`` is a covering index on this column.
+
+    Args:
+        database_name (str): Path to the SQLite database.
+        content_hash (str): SHA-256 hex digest to look up.
+        logger: Optional logger instance.
+
+    Returns:
+        True if a row with this hash already exists, False otherwise.
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+    try:
+        with sqlite3.connect(database_name) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT 1 FROM crawled_data WHERE content_hash = ? LIMIT 1",
+                (content_hash,),
+            )
+            return cursor.fetchone() is not None
+    except sqlite3.Error as e:
+        logger.error(f"Database error while checking duplicate content hash: {e}")
+        return False  # Assume not a duplicate so the page is not silently dropped
