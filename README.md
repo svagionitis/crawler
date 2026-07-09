@@ -288,24 +288,13 @@ CREATE UNIQUE INDEX idx_content_hash  ON crawled_data (content_hash);
 
 > **Migration note for existing databases**
 >
-> When the crawler starts against a database that was created before this
-> change, `init_db` runs `CREATE UNIQUE INDEX IF NOT EXISTS …` automatically.
-> This will **fail** if the database already contains rows with duplicate
-> `content_hash` values (a data-consistency issue from a previous bug).
-> If you see a `UNIQUE constraint failed` error on startup, clean up the
-> duplicates first with:
->
-> ```sql
-> DELETE FROM crawled_data
-> WHERE id NOT IN (
->     SELECT MIN(id)
->     FROM   crawled_data
->     WHERE  content_hash IS NOT NULL
->     GROUP  BY content_hash
-> );
-> ```
->
-> Then re-run the crawler — `init_db` will create the index successfully.
+> When the crawler starts against a database created before this change,
+> `init_db` detects whether `idx_content_hash` is already present.
+> If the index is missing, it **automatically** removes any duplicate
+> `content_hash` rows (keeping the oldest record per hash, leaving `NULL`
+> values untouched) and then creates the index.
+> No manual intervention is required — the migration runs once on the
+> first startup and is a no-op on all subsequent runs.
 
 **Status lifecycle:**
 

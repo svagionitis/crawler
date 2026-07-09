@@ -52,6 +52,33 @@ def init_db(database_name, logger=None):
         # Unique index on content_hash for DB-level duplicate detection.
         # SQLite treats each NULL as distinct, so pending/failed rows (where
         # content_hash IS NULL) are never affected by this constraint.
+        #
+        # For existing databases that pre-date this index, we deduplicate
+        # automatically before creating it: keep the row with the lowest id
+        # for each hash and delete the rest.  This runs only once (when the
+        # index is absent) so it has zero cost on already-migrated databases.
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_content_hash'"
+        )
+        if cursor.fetchone() is None:
+            cursor.execute(
+                """
+                DELETE FROM crawled_data
+                WHERE  content_hash IS NOT NULL
+                  AND  id NOT IN (
+                           SELECT MIN(id)
+                           FROM   crawled_data
+                           WHERE  content_hash IS NOT NULL
+                           GROUP  BY content_hash
+                       )
+                """
+            )
+            deleted = cursor.rowcount
+            if deleted:
+                logger.info(
+                    f"Auto-migration: removed {deleted} duplicate content_hash "
+                    f"row(s) before creating unique index."
+                )
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_content_hash ON crawled_data (content_hash)")
 
         # Run migrations dynamically for existing databases
