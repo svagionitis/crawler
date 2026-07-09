@@ -129,18 +129,21 @@ def _similarity_worker_loop(db_path, job_queue):
                     "SELECT url, domain, title, date_crawled, text_signature FROM global_signatures WHERE url != ?",
                     (url,)
                 )
-                rows = cursor.fetchall()
 
-                for other_url, other_domain, other_title, other_date, other_sig in rows:
-                    score = calculate_similarity(sig, other_sig)
-                    if score >= threshold:
-                        matches.append({
-                            "url": other_url,
-                            "domain": other_domain,
-                            "title": other_title,
-                            "date_crawled": other_date,
-                            "score": score
-                        })
+                while True:
+                    rows = cursor.fetchmany(1000)
+                    if not rows:
+                        break
+                    for other_url, other_domain, other_title, other_date, other_sig in rows:
+                        score = calculate_similarity(sig, other_sig)
+                        if score >= threshold:
+                            matches.append({
+                                "url": other_url,
+                                "domain": other_domain,
+                                "title": other_title,
+                                "date_crawled": other_date,
+                                "score": score
+                            })
 
                 # Save the new signature and clean text + html to global index database
                 conn.execute("""
@@ -217,18 +220,21 @@ class SimilarityIndexer:
                     "SELECT url, domain, title, date_crawled, text_signature FROM global_signatures WHERE url != ?",
                     (url,)
                 )
-                rows = cursor.fetchall()
 
-                for other_url, other_domain, other_title, other_date, other_sig in rows:
-                    score = calculate_similarity(sig, other_sig)
-                    if score >= threshold:
-                        matches.append({
-                            "url": other_url,
-                            "domain": other_domain,
-                            "title": other_title,
-                            "date_crawled": other_date,
-                            "score": score
-                        })
+                while True:
+                    rows = cursor.fetchmany(1000)
+                    if not rows:
+                        break
+                    for other_url, other_domain, other_title, other_date, other_sig in rows:
+                        score = calculate_similarity(sig, other_sig)
+                        if score >= threshold:
+                            matches.append({
+                                "url": other_url,
+                                "domain": other_domain,
+                                "title": other_title,
+                                "date_crawled": other_date,
+                                "score": score
+                            })
 
                 conn.execute("""
                     INSERT OR REPLACE INTO global_signatures (domain, url, title, html_content, extracted_text, date_crawled, text_signature)
