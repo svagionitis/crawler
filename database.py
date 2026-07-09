@@ -5,6 +5,24 @@ from config import USER_AGENT
 from utils import ensure_directory_exists
 import os
 from typing import Optional
+import threading
+
+_local = threading.local()
+
+
+def get_connection(database_name):
+    """Get or create a thread-local SQLite connection for the specified database."""
+    if not hasattr(_local, "connections"):
+        _local.connections = {}
+    if database_name not in _local.connections:
+        conn = sqlite3.connect(database_name)
+        # WAL mode allows concurrent reads during writes — essential for multi-threading.
+        # We also set a high busy timeout to handle concurrent write access elegantly.
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
+        _local.connections[database_name] = conn
+    return _local.connections[database_name]
+
 
 
 def get_database_name(domain, db_dir, logger=None):
@@ -20,7 +38,8 @@ def init_db(database_name, logger=None):
     """Initialize the SQLite database and create the table if it doesn't exist."""
     if logger is None:
         logger = logging.getLogger(__name__)
-    with sqlite3.connect(database_name) as conn:
+    conn = get_connection(database_name)
+    with conn:
         cursor = conn.cursor()
         # WAL mode allows concurrent reads during writes — essential for multi-threading
         cursor.execute("PRAGMA journal_mode=WAL")
@@ -105,7 +124,8 @@ def save_links_to_db(database_name, domain, links, robots_parser, status="pendin
     if logger is None:
         logger = logging.getLogger(__name__)
     try:
-        with sqlite3.connect(database_name) as conn:
+        conn = get_connection(database_name)
+        with conn:
             cursor = conn.cursor()
             for link in links:
                 if robots_parser and not robots_parser.can_fetch(USER_AGENT, link):
@@ -159,7 +179,8 @@ def update_link_in_db(database_name, link, content, content_hash, status="crawle
     if logger is None:
         logger = logging.getLogger(__name__)
     try:
-        with sqlite3.connect(database_name) as conn:
+        conn = get_connection(database_name)
+        with conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -201,7 +222,8 @@ def load_pending_links(database_name, limit=None, logger=None):
         logger = logging.getLogger(__name__)
     pending_links = []
     try:
-        with sqlite3.connect(database_name) as conn:
+        conn = get_connection(database_name)
+        with conn:
             cursor = conn.cursor()
             query = "SELECT link FROM crawled_data WHERE status = 'pending'"
             params = ()
@@ -219,7 +241,8 @@ def is_database_empty(database_name, logger=None):
     if logger is None:
         logger = logging.getLogger(__name__)
     try:
-        with sqlite3.connect(database_name) as conn:
+        conn = get_connection(database_name)
+        with conn:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM crawled_data")
             count = cursor.fetchone()[0]
@@ -236,7 +259,8 @@ def check_re_crawl(database_name, link, re_crawl_time, logger=None):
     if logger is None:
         logger = logging.getLogger(__name__)
     try:
-        with sqlite3.connect(database_name) as conn:
+        conn = get_connection(database_name)
+        with conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -275,7 +299,8 @@ def is_duplicate_content(database_name, content_hash: str, logger=None) -> bool:
     if logger is None:
         logger = logging.getLogger(__name__)
     try:
-        with sqlite3.connect(database_name) as conn:
+        conn = get_connection(database_name)
+        with conn:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT 1 FROM crawled_data WHERE content_hash = ? LIMIT 1",
