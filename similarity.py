@@ -39,18 +39,6 @@ def init_similarity_db(db_path, logger=None):
             )
         """)
 
-        # Migration: drop legacy html_content and extracted_text columns if they exist.
-        # These duplicated data already stored in per-domain crawled_data DBs.
-        cursor.execute("PRAGMA table_info(global_signatures)")
-        existing_cols = {row[1] for row in cursor.fetchall()}
-        for col in ("html_content", "extracted_text"):
-            if col in existing_cols:
-                try:
-                    cursor.execute(f"ALTER TABLE global_signatures DROP COLUMN {col}")
-                    logger.info(f"Migration: dropped unused column '{col}' from global_signatures.")
-                except sqlite3.OperationalError:
-                    # SQLite < 3.35.0 does not support DROP COLUMN — leave in place.
-                    logger.warning(f"Migration: could not drop column '{col}' (SQLite too old). Column will be ignored.")
         # Create matching pair references
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS plagiarism_matches (
@@ -72,29 +60,6 @@ def init_similarity_db(db_path, logger=None):
             )
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_lsh_buckets_url ON lsh_buckets (url)")
-
-        # Auto-migration: Populate lsh_buckets if it is empty but global_signatures has rows
-        cursor.execute("SELECT COUNT(*) FROM lsh_buckets")
-        lsh_count = cursor.fetchone()[0]
-        if lsh_count == 0:
-            cursor.execute("SELECT url, text_signature FROM global_signatures")
-            rows = cursor.fetchall()
-            if rows:
-                logger.info(f"Auto-migration: building LSH index for {len(rows)} existing signatures...")
-                band_rows = []
-                for url, sig in rows:
-                    if len(sig) == 512:  # 128 integers * 4 bytes
-                        sig_integers = struct.unpack('<128I', sig)
-                        for i in range(16):
-                            band_ints = sig_integers[i * 8 : (i + 1) * 8]
-                            band_hash = hashlib.md5(struct.pack('<8I', *band_ints)).hexdigest()
-                            band_rows.append((i, band_hash, url))
-                if band_rows:
-                    cursor.executemany("""
-                        INSERT INTO lsh_buckets (band_id, bucket_hash, url)
-                        VALUES (?, ?, ?)
-                    """, band_rows)
-                logger.info("Auto-migration: LSH index build complete.")
 
 
 def compute_minhash(text, num_permutations=128):
