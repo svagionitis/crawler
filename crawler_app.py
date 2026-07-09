@@ -8,8 +8,8 @@ import json
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 from database import init_db, save_links_to_db, update_link_in_db, \
-    load_pending_links, get_database_name, is_database_empty, check_re_crawl, \
-    is_duplicate_content, reset_link_to_pending
+    load_pending_links, get_database_name, is_database_empty, \
+    is_duplicate_content
 from utils import fetch_page, extract_links, compute_hash, ensure_directory_exists, extract_article_content
 from bs4 import BeautifulSoup
 from config import USER_AGENT
@@ -95,7 +95,7 @@ def initialize_crawler(start_url, respect_robots, crawl_delay, logs_dir, db_dir)
 
     return database_name, robots_parser, crawl_delay, robots_delay_applied, logger
 
-def prepare_crawl_queue(database_name, start_url, robots_parser, resume, logger):
+def prepare_crawl_queue(database_name, start_url, robots_parser, resume, re_crawl_time, logger):
     """Seed the database queue with the start URL when not resuming.
 
     The queue is now entirely DB-backed; this function no longer returns a list.
@@ -104,7 +104,7 @@ def prepare_crawl_queue(database_name, start_url, robots_parser, resume, logger)
         logger.info(f"Resuming from existing database: {database_name}")
     else:
         logger.info(f"Starting fresh crawl from: {start_url}")
-        save_links_to_db(database_name, urlparse(start_url).netloc, [start_url], robots_parser, logger=logger)
+        save_links_to_db(database_name, urlparse(start_url).netloc, [start_url], robots_parser, re_crawl_time=re_crawl_time, logger=logger)
 
 def crawl_page(database_name, current_url, robots_parser, no_duplicates,
                re_crawl_time, logger, parser_engine="auto"):
@@ -120,12 +120,6 @@ def crawl_page(database_name, current_url, robots_parser, no_duplicates,
     if robots_parser and not robots_parser.can_fetch(USER_AGENT, current_url):
         logger.info(f"Skipping {current_url} due to robots.txt")
         return None, set(), "skip"
-
-    # Check if the link should be re-crawled
-    if not check_re_crawl(database_name, current_url, re_crawl_time, logger=logger):
-        logger.info(f"Link {current_url} was crawled recently. Updating date_inserted and setting status to pending.")
-        reset_link_to_pending(database_name, current_url, logger=logger)
-        return None, set(), "save"
 
     # Fetch the page
     logger.info(f"Crawling: {current_url}")
@@ -202,7 +196,7 @@ def crawl_worker(database_name, current_url, robots_parser, no_duplicates,
     )
     if content and action is None:
         if new_links:
-            save_links_to_db(database_name, domain, list(new_links), robots_parser, logger=logger)
+            save_links_to_db(database_name, domain, list(new_links), robots_parser, re_crawl_time=re_crawl_time, logger=logger)
     elif content is None and action:
         # Robot skip or re-crawl window — no network request was made, skip delay
         return current_url
@@ -244,7 +238,7 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume,
             crawl_delay = scaled_delay
 
     # Seed or resume the DB queue
-    prepare_crawl_queue(database_name, start_url, robots_parser, resume, logger)
+    prepare_crawl_queue(database_name, start_url, robots_parser, resume, re_crawl_time, logger)
 
     domain = urlparse(start_url).netloc
 
@@ -252,7 +246,7 @@ def crawl_site(start_url, respect_robots, no_duplicates, crawl_delay, resume,
     # The executor is re-created per batch so newly discovered links are picked
     # up by the next DB query before the next batch is dispatched.
     while not shutdown_event.is_set():
-        batch = load_pending_links(database_name, limit=batch_size, logger=logger)
+        batch = load_pending_links(database_name, re_crawl_time, limit=batch_size, logger=logger)
         if not batch:
             logger.info("No pending links remaining. Crawl complete.")
             break

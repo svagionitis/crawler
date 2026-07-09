@@ -144,7 +144,7 @@ def init_db(database_name, logger=None):
 
         conn.commit()
 
-def save_links_to_db(database_name, domain, links, robots_parser, status="pending", logger=None):
+def save_links_to_db(database_name, domain, links, robots_parser, status="pending", re_crawl_time=3, logger=None):
     """Save multiple links to the database in a batch, if allowed by robots.txt."""
     if logger is None:
         logger = logging.getLogger(__name__)
@@ -162,10 +162,16 @@ def save_links_to_db(database_name, domain, links, robots_parser, status="pendin
                     INSERT INTO crawled_data (domain, date_inserted, link, status)
                     VALUES (?, ?, ?, ?)
                     ON CONFLICT(link) DO UPDATE SET
-                        date_inserted = excluded.date_inserted
-                    WHERE status = 'pending'
+                        status = CASE 
+                            WHEN status = 'crawled' AND (julianday('now') - julianday(date_crawled)) * 24 >= ? THEN 'pending'
+                            ELSE status
+                        END,
+                        date_inserted = CASE 
+                            WHEN status = 'pending' OR (status = 'crawled' AND (julianday('now') - julianday(date_crawled)) * 24 >= ?) THEN excluded.date_inserted
+                            ELSE date_inserted
+                        END
                     """,
-                    (domain, datetime.now(), link, status),
+                    (domain, datetime.now(), link, status, re_crawl_time, re_crawl_time),
                 )
                 if cursor.rowcount > 0:
                     logger.info(f"Saved/updated link in database: {link} (status: {status})")
@@ -234,11 +240,12 @@ def update_link_in_db(database_name, link, content, content_hash, status="crawle
         logger.error(f"Database error while updating link: {e}")
         return False
 
-def load_pending_links(database_name, limit=None, logger=None):
+def load_pending_links(database_name, re_crawl_time=3, limit=None, logger=None):
     """Load pending links from the database.
 
     Args:
         database_name (str): Path to the SQLite database.
+        re_crawl_time (int): Time in hours after which a link should be re-crawled.
         limit (int | None): Maximum number of links to return.
                             Pass None to load all pending links (default behaviour).
         logger: Optional logger instance. Falls back to module-level logger.
@@ -253,11 +260,15 @@ def load_pending_links(database_name, limit=None, logger=None):
         conn = get_connection(database_name)
         with conn:
             cursor = conn.cursor()
-            query = "SELECT link FROM crawled_data WHERE status = 'pending'"
-            params = ()
+            query = """
+                SELECT link FROM crawled_data 
+                WHERE status = 'pending'
+                  AND (date_crawled IS NULL OR (julianday('now') - julianday(date_crawled)) * 24 >= ?)
+            """
+            params = (re_crawl_time,)
             if limit is not None:
                 query += " LIMIT ?"
-                params = (limit,)
+                params = (re_crawl_time, limit)
             cursor.execute(query, params)
             pending_links = [row[0] for row in cursor.fetchall()]
     except sqlite3.Error as e:
