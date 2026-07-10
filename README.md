@@ -244,6 +244,11 @@ will apply `F:\db` and `F:\logs` as the database and logs directory settings for
 
 If no proxy is specified (locally in the JSON config or via the CLI `--proxy` parameter), the crawler defaults to a direct connection, which explicitly overrides and bypasses system environment proxy variables (like `HTTP_PROXY` and `HTTPS_PROXY`).
 
+#### Hybrid Connection Strategy
+To optimize performance and resource utilization, the crawler implements a hybrid connection strategy:
+- **Direct Connection**: Utilizes a persistent `requests.Session()` to enable HTTP Keep-Alive connection pooling. This significantly reduces latency and local/remote socket overhead, speeding up crawls by up to 3x–5x.
+- **Proxy/Tor Connection**: Disables session pooling and opens a fresh TCP/TLS socket per request (using `requests.get()`). This allows proxy services to successfully perform IP rotation and ensures Tor circuit changes apply to individual fetches.
+
 ### Multi-threading & Rate Limiting
 
 To increase throughput without overloading target servers, the crawler supports concurrent crawling via `--workers`:

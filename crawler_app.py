@@ -101,11 +101,19 @@ class SiteCrawler:
         # Initialize database schemas and indexes
         init_db(self.database_name, logger=self.logger)
 
+        # Initialize HTTP connection session if no proxies are configured (enables HTTP Keep-Alive connection pooling)
+        proxies = self.proxy_provider.get_proxies()
+        if not proxies:
+            self.session = requests.Session()
+            self.logger.info("Direct connection: enabled HTTP Keep-Alive connection pooling.")
+        else:
+            self.session = None
+
         # Initialize robots.txt parser
         if self.respect_robots:
             self.robots_parser = RobotFileParser()
             robots_url = urljoin(self.start_url, "/robots.txt")
-            robots_content, _, robots_error_description = fetch_page(robots_url, proxies=self.proxy_provider.get_proxies(), logger=self.logger)
+            robots_content, _, robots_error_description = fetch_page(robots_url, proxies=proxies, session=self.session, logger=self.logger)
             if robots_error_description:
                 self.logger.warning(f"Failed to fetch robots.txt: {robots_error_description}")
                 return
@@ -142,7 +150,7 @@ class SiteCrawler:
 
         # Fetch the page
         self.logger.info(f"Crawling: {current_url}")
-        content, content_type, error_description = fetch_page(current_url, proxies=self.proxy_provider.get_proxies(), logger=self.logger)
+        content, content_type, error_description = fetch_page(current_url, proxies=self.proxy_provider.get_proxies(), session=self.session, logger=self.logger)
         if error_description:
             # Handle failure
             error_description_hash = compute_hash(error_description)
@@ -379,6 +387,10 @@ class SiteCrawler:
                 self.logger.info("Crawl execution halted or completed.")
 
         finally:
+            # Close connection session if instantiated
+            if getattr(self, "session", None) is not None:
+                self.session.close()
+
             # Unregister crawler instance
             with _active_crawlers_lock:
                 if self in _active_crawlers:

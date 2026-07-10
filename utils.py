@@ -11,7 +11,7 @@ import certifi
 
 from extractors import get_extractor
 
-def fetch_page(url, max_retries=3, initial_timeout=60, proxies=None, logger=None):
+def fetch_page(url, max_retries=3, initial_timeout=60, proxies=None, session=None, logger=None):
     """
     Fetch the content of a web page with retries and exponential backoff.
 
@@ -20,6 +20,7 @@ def fetch_page(url, max_retries=3, initial_timeout=60, proxies=None, logger=None
         max_retries (int): Maximum number of retries (default: 3).
         initial_timeout (int): Initial timeout in seconds (default: 60).
         proxies (dict): Optional dictionary mapping protocol to proxy URL.
+        session: Optional requests.Session instance to reuse connections.
         logger: Optional logger instance. Falls back to module-level logger.
 
     Returns:
@@ -32,9 +33,11 @@ def fetch_page(url, max_retries=3, initial_timeout=60, proxies=None, logger=None
     retry_count = 0
     timeout = initial_timeout
 
+    client = session if session is not None else requests
+
     while retry_count < max_retries:
         try:
-            response = requests.get(url, headers=headers, timeout=timeout, verify=certifi.where(), proxies=proxies)
+            response = client.get(url, headers=headers, timeout=timeout, verify=certifi.where(), proxies=proxies)
             response.raise_for_status()
 
             # Check the Content-Type header
