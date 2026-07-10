@@ -20,6 +20,7 @@ A lightweight, polite web crawler written in Python that scrapes news sites and 
 - [Logging](#logging)
 - [Graceful Shutdown](#graceful-shutdown)
 - [Known Limitations & Future Work](#known-limitations--future-work)
+- [License](#license)
 
 ---
 
@@ -472,4 +473,14 @@ Pending links remain in the database with `status = 'pending'`, so you can resum
 - **Dynamic / JavaScript-Rendered Sites** — The crawler currently performs static HTTP requests. Sites that rely on client-side JavaScript framework rendering (React, Vue, etc.) or load articles dynamically will not have their text contents fully captured. Incorporating a headless browser rendering engine (such as Playwright, Selenium, or Pyppeteer) is a planned feature to handle dynamic web content.
 - **Plagiarism & Duplicate Content Detection** — To check if news reports are plagiarized or cover identical stories, extracted article texts can be compared using natural language processing (NLP) and similarity algorithms (such as MinHash/LSH, Cosine Similarity via TF-IDF or word/document embeddings, and sequence alignment).
 - **Link extraction limited to `<a href>`** — `<link>`, `<script src>`, sitemaps, and RSS feeds are not followed.
+
+---
+
+## License
+
+This project is dual-licensed:
+- **Open Source**: GNU General Public License version 3 (GPLv3).
+- **Commercial**: For use in commercial, proprietary, or closed-source applications.
+
+See the [LICENSE](LICENSE) file for details.
 
