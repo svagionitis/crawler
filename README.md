@@ -179,7 +179,7 @@ python crawler_app.py --config <PATH_TO_JSON> [OPTIONS]
 | `--no-normalize-whitespace` | flag | `False` | Preserve raw whitespaces (newlines, tabs) in the extracted text instead of collapsing them into a single space. |
 | `--plagiarism-db` | `str` | `db/plagiarism_index.db` | Path to the central similarity index SQLite database. |
 | `--plagiarism-threshold` | `float` | `0.8` | Similarity Jaccard threshold (0.0 to 1.0) above which articles are flagged as plagiarism/near-duplicates. |
-| `--proxy` | `str` | `None` | Proxy configuration for the connection (e.g. `'tor'` or SOCKS/HTTP proxy URL). Defaults to direct connection. |
+| `--proxy` | `str` | `None` | Proxy configuration for the connection (e.g. `'tor'` or SOCKS/HTTP proxy URL). Defaults to a direct connection (explicitly overriding environment proxies). |
 
 
 ### Crawling Multiple URLs via JSON Configuration
@@ -241,6 +241,8 @@ python crawler_app.py --config config.json --db-dir F:\db --logs-dir F:\logs
 ```
 
 will apply `F:\db` and `F:\logs` as the database and logs directory settings for all sites in `config.json` except those that specify their own local `db_dir` or `logs_dir` fields.
+
+If no proxy is specified (locally in the JSON config or via the CLI `--proxy` parameter), the crawler defaults to a direct connection, which explicitly overrides and bypasses system environment proxy variables (like `HTTP_PROXY` and `HTTPS_PROXY`).
 
 ### Multi-threading & Rate Limiting
 

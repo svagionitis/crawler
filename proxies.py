@@ -7,7 +7,7 @@ class ProxyProvider:
 class DirectConnectionProvider(ProxyProvider):
     """Fallback default connection (no proxy)."""
     def get_proxies(self) -> dict:
-        return None
+        return {}
 
 
 class StaticProxyProvider(ProxyProvider):
