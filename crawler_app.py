@@ -8,15 +8,12 @@ import json
 import queue
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
-from database import init_db, save_links_to_db, update_link_in_db, \
-    load_pending_links, get_database_name, is_database_empty, \
-    is_duplicate_content
-from utils import fetch_page, extract_links, compute_hash, ensure_directory_exists, extract_article_content
+from database import init_db, save_links_to_db, load_pending_links, get_database_name, is_database_empty, update_link_in_db
+from utils import fetch_page, compute_hash, ensure_directory_exists
 from proxies import get_proxy_provider
-from bs4 import BeautifulSoup
+from processors import NewsContentProcessor
 from config import USER_AGENT, NORMALIZE_WHITESPACE, PLAGIARISM_INDEX_DB, PLAGIARISM_THRESHOLD
 from similarity import SimilarityIndexer
-from datetime import datetime
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -60,6 +57,7 @@ class SiteCrawler:
         self.plagiarism_db = plagiarism_db
         self.plagiarism_threshold = plagiarism_threshold
         self.proxy_provider = get_proxy_provider(proxy)
+        self.processor = NewsContentProcessor()
 
         self.domain = urlparse(start_url).netloc
         self.database_name = get_database_name(self.domain, self.db_dir)
@@ -158,66 +156,8 @@ class SiteCrawler:
             self.logger.info(f"Failed to crawl {current_url}: {error_description}")
             return None, set(), None
 
-        # Check for duplicate content using the database index.
-        content_hash = compute_hash(content)
-        if self.no_duplicates and is_duplicate_content(self.database_name, content_hash, logger=self.logger):
-            self.logger.info(f"Skipping duplicate content: {current_url}")
-            return None, set(), None
-
-        # Detect HTML once using the Content-Type header or a limited prefix search of
-        # the first 1000 characters, avoiding memory-intensive full-page string copies.
-        is_html = (content_type and "html" in content_type) or (
-            content and any(tag in content[:1000].lower() for tag in ("<html", "<body", "<p", "<div"))
-        )
-        soup = BeautifulSoup(content, "html.parser") if is_html else None
-
-        # Extract links FIRST using the pre-parsed soup (non-destructive)
-        new_links = extract_links(current_url, content, self.robots_parser, soup=soup, logger=self.logger) if soup else set()
-
-        # Extract article content, passing the same soup so the bs4 path skips a redundant parse
-        if is_html:
-            extracted = extract_article_content(content, url=current_url, engine=self.parser_engine, soup=soup, normalize_whitespace=self.normalize_whitespace, logger=self.logger)
-        else:
-            extracted = {"title": None, "text": None, "authors": None, "date": None, "keywords": None, "parser_used": None}
-
-        # Memory Optimization: Free the heavy BeautifulSoup parse tree immediately
-        soup = None
-
-        update_link_in_db(
-            self.database_name, current_url, content, content_hash, status="crawled",
-            extracted_title=extracted["title"],
-            extracted_text=extracted["text"],
-            extracted_authors=extracted["authors"],
-            extracted_date=extracted["date"],
-            extracted_keywords=extracted["keywords"],
-            parser_used=extracted["parser_used"],
-            logger=self.logger
-        )
-
-        # Memory Optimization: Free the raw content string immediately after saving it to the DB
-        content_fetched = content is not None
-        content = None
-
-        if extracted.get("text"):
-            try:
-                # Check for plagiarism / near-duplicates against the central index
-                matches = self.indexer.index_and_check(
-                    url=current_url,
-                    domain=self.domain,
-                    title=extracted["title"] or "",
-                    extracted_text=extracted["text"],
-                    date_crawled=datetime.now(),
-                    threshold=self.plagiarism_threshold
-                )
-                for match in matches:
-                    self.logger.warning(
-                        f"🚨 Plagiarism/Duplicate Detected! {current_url} is "
-                        f"{match['score']*100:.1f}% similar to {match['url']} ({match['title']})"
-                    )
-            except Exception as e:
-                self.logger.error(f"Error checking similarity for {current_url}: {e}")
-
-        return content_fetched, new_links, None
+        # Delegate parsing, duplicate detection, and storage to the content processor
+        return self.processor.process_page(self, current_url, content, content_type)
 
     def crawl_worker(self, current_url):
         """Fetch a single URL, save content, and enqueue discovered links.

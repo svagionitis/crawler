@@ -49,6 +49,7 @@ crawler_app.py        ← entry point / orchestration
   ├── config.py       ← global constants (User-Agent string)
   ├── utils.py        ← HTTP fetching, link extraction, hashing, filesystem helpers
   ├── proxies.py      ← connection proxy provider classes and factory
+  ├── processors.py   ← decoupled page processors strategy pipeline
   └── database.py     ← SQLite schema, CRUD operations
 scripts/
   └── crawl-links.ps1 ← PowerShell launcher for parallel multi-site crawls
@@ -413,6 +414,7 @@ re-crawl skipped → pending (date_inserted refreshed)
 ├── database.py             # SQLite helpers (init, save, update, load, check, thread-local cache)
 ├── extractors.py           # News article content extractors (Strategy Pattern: Newspaper, Trafilatura, BS4)
 ├── proxies.py              # Extensible proxy provider strategies and factory function
+├── processors.py           # Decoupled page content processors (Strategy Pattern: NewsContentProcessor)
 ├── utils.py                # HTTP fetch, link extraction, hashing, directory utils
 ├── requirements.txt        # Python dependencies
 ├── config/
