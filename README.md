@@ -359,6 +359,7 @@ Each window's title bar shows the URL being crawled. Sites currently configured 
 Each domain gets its own SQLite file named `crawled_data_<domain>.db` inside `--db-dir`. The database uses Write-Ahead Log (WAL) mode (`PRAGMA journal_mode=WAL`) to support concurrent writes from multiple worker threads without locking.
 
 ```sql
+-- Core queue table (domain-agnostic queue manager)
 CREATE TABLE crawled_data (
     id                 INTEGER  PRIMARY KEY AUTOINCREMENT,
     domain             TEXT     NOT NULL,
@@ -368,13 +369,19 @@ CREATE TABLE crawled_data (
     content            TEXT,                -- HTML (text) or Base64 (binary)
     content_hash       TEXT,                -- SHA-256 of content; also stored on fetch errors
     status             TEXT     NOT NULL    -- 'pending' | 'crawled'
-                       CHECK(status IN ('pending', 'crawled')),
-    extracted_title    TEXT,                -- article headline
-    extracted_text     TEXT,                -- clean body text (boilerplate removed)
-    extracted_authors  TEXT,                -- comma-separated author list
-    extracted_date     TEXT,                -- publication date (ISO format or raw string)
-    extracted_keywords TEXT,                -- comma-separated keywords
-    parser_used        TEXT                 -- engine that ran the extraction ('newspaper', 'trafilatura', 'bs4', or NULL)
+                       CHECK(status IN ('pending', 'crawled'))
+);
+
+-- News payload table (news domain strategy specific)
+CREATE TABLE news_articles (
+    link               TEXT     PRIMARY KEY, -- references crawled_data(link)
+    extracted_title    TEXT,                 -- article headline
+    extracted_text     TEXT,                 -- clean body text (boilerplate removed)
+    extracted_authors  TEXT,                 -- comma-separated author list
+    extracted_date     TEXT,                 -- publication date (ISO format or raw string)
+    extracted_keywords TEXT,                 -- comma-separated keywords
+    parser_used        TEXT,                 -- engine that ran the extraction ('newspaper', 'trafilatura', 'bs4', or NULL)
+    FOREIGN KEY(link) REFERENCES crawled_data(link) ON DELETE CASCADE
 );
 
 -- Indexes for fast queue queries and uniqueness constraint

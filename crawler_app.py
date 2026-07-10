@@ -8,7 +8,7 @@ import json
 import queue
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
-from database import init_db, save_links_to_db, load_pending_links, get_database_name, is_database_empty, update_link_in_db
+from database import init_db, save_links_to_db, load_pending_links, get_database_name, is_database_empty, update_queue_link
 from utils import fetch_page, compute_hash, ensure_directory_exists
 from proxies import get_proxy_provider
 from processors import NewsContentProcessor
@@ -152,7 +152,7 @@ class SiteCrawler:
         if error_description:
             # Handle failure
             error_description_hash = compute_hash(error_description)
-            update_link_in_db(self.database_name, current_url, error_description, error_description_hash, status="pending", logger=self.logger)
+            update_queue_link(self.database_name, current_url, error_description, error_description_hash, status="pending", logger=self.logger)
             self.logger.info(f"Failed to crawl {current_url}: {error_description}")
             return None, set(), None
 

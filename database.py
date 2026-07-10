@@ -64,13 +64,7 @@ def init_db(database_name, logger=None):
                 link TEXT NOT NULL,
                 content TEXT,
                 content_hash TEXT,
-                status TEXT NOT NULL CHECK(status IN ('pending', 'crawled')),
-                extracted_title TEXT,
-                extracted_text TEXT,
-                extracted_authors TEXT,
-                extracted_date TEXT,
-                extracted_keywords TEXT,
-                parser_used TEXT
+                status TEXT NOT NULL CHECK(status IN ('pending', 'crawled'))
             )
             """
         )
@@ -136,23 +130,6 @@ def init_db(database_name, logger=None):
                     f"row(s) before creating unique index."
                 )
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_content_hash ON crawled_data (content_hash)")
-
-        # Run migrations dynamically for existing databases
-        cursor.execute("PRAGMA table_info(crawled_data)")
-        columns = [row[1] for row in cursor.fetchall()]
-        new_columns = [
-            ("extracted_title", "TEXT"),
-            ("extracted_text", "TEXT"),
-            ("extracted_authors", "TEXT"),
-            ("extracted_date", "TEXT"),
-            ("extracted_keywords", "TEXT"),
-            ("parser_used", "TEXT"),
-        ]
-        for col_name, col_type in new_columns:
-            if col_name not in columns:
-                cursor.execute(f"ALTER TABLE crawled_data ADD COLUMN {col_name} {col_type}")
-                logger.info(f"Added column {col_name} to crawled_data table.")
-
         conn.commit()
 
 def save_links_to_db(database_name, domain, links, robots_parser, status="pending", re_crawl_time=3, logger=None):
@@ -211,11 +188,8 @@ def reset_link_to_pending(database_name, link, logger=None):
     except sqlite3.Error as e:
         logger.error(f"Database error while resetting link to pending: {e}")
 
-def update_link_in_db(database_name, link, content, content_hash, status="crawled",
-                      extracted_title=None, extracted_text=None, extracted_authors=None,
-                      extracted_date=None, extracted_keywords=None, parser_used=None,
-                      logger=None) -> bool:
-    """Update a link in the database with content, hash, date_crawled, parsed metadata, and mark it with the given status.
+def update_queue_link(database_name, link, content, content_hash, status="crawled", logger=None) -> bool:
+    """Update a link in the crawl queue with content, hash, date_crawled, and mark it with the given status.
 
     Returns:
         True on success, False if the update was rejected due to a duplicate
@@ -230,17 +204,13 @@ def update_link_in_db(database_name, link, content, content_hash, status="crawle
             cursor.execute(
                 """
                 UPDATE crawled_data
-                SET content = ?, content_hash = ?, status = ?, date_crawled = ?,
-                    extracted_title = ?, extracted_text = ?, extracted_authors = ?,
-                    extracted_date = ?, extracted_keywords = ?, parser_used = ?
+                SET content = ?, content_hash = ?, status = ?, date_crawled = ?
                 WHERE link = ?
                 """,
-                (content, content_hash, status, datetime.now(),
-                 extracted_title, extracted_text, extracted_authors,
-                 extracted_date, extracted_keywords, parser_used, link),
+                (content, content_hash, status, datetime.now(), link),
             )
             conn.commit()
-            logger.info(f"Updated link in database: {link}")
+            logger.info(f"Updated queue link in database: {link}")
             return True
     except sqlite3.IntegrityError:
         # Another row with the same content_hash was committed between our
@@ -248,7 +218,7 @@ def update_link_in_db(database_name, link, content, content_hash, status="crawle
         logger.info(f"Skipping duplicate content (concurrent write race): {link}")
         return False
     except sqlite3.Error as e:
-        logger.error(f"Database error while updating link: {e}")
+        logger.error(f"Database error while updating queue link: {e}")
         return False
 
 def load_pending_links(database_name, re_crawl_time=3, limit=None, logger=None):
