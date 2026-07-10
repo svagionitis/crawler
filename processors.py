@@ -221,7 +221,7 @@ class SupermarketContentProcessor(BaseContentProcessor):
 
             # 2. Fallback to OpenGraph / Meta tags
             if not product_name:
-                title_tag = soup.find("meta", property="og:title") or soup.find("meta", name="title")
+                title_tag = soup.find("meta", property="og:title") or soup.find("meta", attrs={"name": "title"})
                 product_name = title_tag["content"] if title_tag else (soup.title.string if soup.title else None)
             if price is None:
                 price_tag = soup.find("meta", property="product:price:amount") or soup.find("meta", property="og:price:amount")
@@ -231,7 +231,7 @@ class SupermarketContentProcessor(BaseContentProcessor):
                     except ValueError:
                         pass
             if not sku:
-                sku_tag = soup.find("meta", property="product:retailer_item_id") or soup.find("meta", name="sku")
+                sku_tag = soup.find("meta", property="product:retailer_item_id") or soup.find("meta", attrs={"name": "sku"})
                 sku = sku_tag["content"] if sku_tag else None
 
         soup = None
