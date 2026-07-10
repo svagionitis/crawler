@@ -181,6 +181,7 @@ python crawler_app.py --config <PATH_TO_JSON> [OPTIONS]
 | `--plagiarism-db` | `str` | `db/plagiarism_index.db` | Path to the central similarity index SQLite database. |
 | `--plagiarism-threshold` | `float` | `0.8` | Similarity Jaccard threshold (0.0 to 1.0) above which articles are flagged as plagiarism/near-duplicates. |
 | `--proxy` | `str` | `None` | Proxy configuration for the connection (e.g. `'tor'` or SOCKS/HTTP proxy URL). Defaults to a direct connection (explicitly overriding environment proxies). |
+| `--processor` | `str` | `news` | Content extraction processor strategy (`'news'`). |
 
 
 ### Crawling Multiple URLs via JSON Configuration
@@ -381,6 +382,26 @@ CREATE TABLE news_articles (
     extracted_date     TEXT,                 -- publication date (ISO format or raw string)
     extracted_keywords TEXT,                 -- comma-separated keywords
     parser_used        TEXT,                 -- engine that ran the extraction ('newspaper', 'trafilatura', 'bs4', or NULL)
+    FOREIGN KEY(link) REFERENCES crawled_data(link) ON DELETE CASCADE
+);
+
+-- Supermarket payload table (supermarket domain strategy specific)
+CREATE TABLE supermarket_products (
+    link               TEXT     PRIMARY KEY, -- references crawled_data(link)
+    product_name       TEXT,                 -- product name
+    price              REAL,                 -- price value
+    sku                TEXT,                 -- SKU code
+    category           TEXT,                 -- product category
+    FOREIGN KEY(link) REFERENCES crawled_data(link) ON DELETE CASCADE
+);
+
+-- Forum payload table (forum domain strategy specific)
+CREATE TABLE forum_posts (
+    link               TEXT     PRIMARY KEY, -- references crawled_data(link)
+    thread_title       TEXT,                 -- thread title
+    author             TEXT,                 -- post author name
+    post_content       TEXT,                 -- text body of the post
+    post_date          TEXT,                 -- date post was published
     FOREIGN KEY(link) REFERENCES crawled_data(link) ON DELETE CASCADE
 );
 

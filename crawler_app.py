@@ -11,7 +11,7 @@ from urllib.robotparser import RobotFileParser
 from database import init_db, save_links_to_db, load_pending_links, get_database_name, is_database_empty, update_queue_link
 from utils import fetch_page, compute_hash, ensure_directory_exists
 from proxies import get_proxy_provider
-from processors import NewsContentProcessor
+from processors import get_processor
 from config import USER_AGENT, NORMALIZE_WHITESPACE, PLAGIARISM_INDEX_DB, PLAGIARISM_THRESHOLD
 from similarity import SimilarityIndexer
 import threading
@@ -41,7 +41,8 @@ class SiteCrawler:
                  crawl_delay=30, resume=False, re_crawl_time=3,
                  logs_dir="logs", db_dir="db", batch_size=100,
                  workers=1, parser_engine="auto", normalize_whitespace=True,
-                 plagiarism_db=None, plagiarism_threshold=0.8, proxy=None):
+                 plagiarism_db=None, plagiarism_threshold=0.8, proxy=None,
+                 processor="news"):
         self.start_url = start_url
         self.respect_robots = respect_robots
         self.no_duplicates = no_duplicates
@@ -57,7 +58,10 @@ class SiteCrawler:
         self.plagiarism_db = plagiarism_db
         self.plagiarism_threshold = plagiarism_threshold
         self.proxy_provider = get_proxy_provider(proxy)
-        self.processor = NewsContentProcessor()
+        if isinstance(processor, str):
+            self.processor = get_processor(processor)
+        else:
+            self.processor = processor
 
         self.domain = urlparse(start_url).netloc
         self.database_name = get_database_name(self.domain, self.db_dir)
@@ -468,6 +472,12 @@ def main():
         default=None,
         help="Proxy setting for crawling the URL (e.g. 'tor', 'http://127.0.0.1:8080'). Defaults to direct connection.",
     )
+    parser.add_argument(
+        "--processor",
+        type=str,
+        default="news",
+        help="The content extraction processor to use. Options: 'news' (default).",
+    )
     args = parser.parse_args()
 
     # Validate mutual exclusivity of --url and --config
@@ -494,7 +504,8 @@ def main():
                 normalize_whitespace=args.normalize_whitespace,
                 plagiarism_db=args.plagiarism_db,
                 plagiarism_threshold=args.plagiarism_threshold,
-                proxy=args.proxy
+                proxy=args.proxy,
+                processor=args.processor
             )
             crawler.crawl()
         else:
@@ -547,7 +558,8 @@ def main():
                     normalize_whitespace=site.get("normalize_whitespace", args.normalize_whitespace),
                     plagiarism_db=plagiarism_db,
                     plagiarism_threshold=plagiarism_threshold,
-                    proxy=site.get("proxy", args.proxy)
+                    proxy=site.get("proxy", args.proxy),
+                    processor=site.get("processor", args.processor)
                 )
                 crawlers.append(crawler)
 
