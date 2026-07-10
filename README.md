@@ -1,6 +1,6 @@
-# Greek News Scraper — Crawler
+# Polite Web Crawler
 
-A lightweight, polite web crawler written in Python that scrapes news sites and stores raw page content in a per-domain SQLite database. Built with `robots.txt` compliance, configurable crawl delays, exponential-backoff retries, SHA-256 duplicate detection, and resume support.
+A lightweight, polite web crawler written in Python that scrapes websites and stores raw page content along with extracted page/article metadata in a per-domain SQLite database. Built with `robots.txt` compliance, configurable crawl delays, exponential-backoff retries, SHA-256 duplicate detection, and resume support.
 
 ---
 
@@ -446,7 +446,7 @@ re-crawl skipped → pending (date_inserted refreshed)
 ├── utils.py                # HTTP fetch, link extraction, hashing, directory utils
 ├── requirements.txt        # Python dependencies
 ├── config/
-│   ├── news-sites-gr.json  # Default multi-site crawl configuration (Greek news outlets)
+│   ├── news-sites-gr.json  # Example multi-site crawl configuration (Greek news outlets)
 │   └── sites.json          # Alternative/extended site configuration
 ├── scripts/
 │   ├── crawl-links.ps1     # PowerShell multi-site launcher (one window per site)
