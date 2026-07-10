@@ -14,6 +14,7 @@ from proxies import get_proxy_provider
 from processors import get_processor
 from config import USER_AGENT, NORMALIZE_WHITESPACE, PLAGIARISM_INDEX_DB, PLAGIARISM_THRESHOLD
 from similarity import SimilarityIndexer
+from datetime import datetime
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
