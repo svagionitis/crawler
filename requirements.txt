@@ -13,3 +13,5 @@ trafilatura>=1.8.0
 # Advanced news article scraper & parser (extracts title, text, authors, date, keywords)
 newspaper3k>=0.2.8
 
+# SOCKS proxy support for requests (used for Tor)
+PySocks>=1.7.1

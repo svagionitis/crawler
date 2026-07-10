@@ -36,6 +36,7 @@ A lightweight, polite web crawler written in Python that scrapes news sites and 
 - **Retry with exponential backoff** — up to 3 retries on timeouts and 504 Gateway Timeout errors.
 - **Domain-scoped crawl** — only follows links that share the same `netloc` as the seed URL.
 - **Structured logging** — timestamped log files per domain, written with UTF-8 encoding. Each site gets its own isolated logger in parallel mode — no cross-contamination between log files.
+- **Per-site proxy & Tor support** — configure separate HTTP, HTTPS, or SOCKS5 proxies per site, with a built-in `"tor"` shortcut to route requests through a local Tor client.
 - **Graceful shutdown** — press `Ctrl+C` once to finish in-flight pages and exit cleanly; press again to force-quit immediately.
 
 ---
@@ -46,6 +47,7 @@ A lightweight, polite web crawler written in Python that scrapes news sites and 
 crawler_app.py        ← entry point / orchestration
   ├── config.py       ← global constants (User-Agent string)
   ├── utils.py        ← HTTP fetching, link extraction, hashing, filesystem helpers
+  ├── proxies.py      ← connection proxy provider classes and factory
   └── database.py     ← SQLite schema, CRUD operations
 scripts/
   └── crawl-links.ps1 ← PowerShell launcher for parallel multi-site crawls
@@ -121,6 +123,7 @@ graph TD
 - [certifi](https://pypi.org/project/certifi/)
 - [trafilatura](https://pypi.org/project/trafilatura/) (≥ 1.8.0) — article text extraction & boilerplate removal
 - [newspaper3k](https://pypi.org/project/newspaper3k/) (≥ 0.2.8) — news article scraping (title, authors, date, keywords)
+- [PySocks](https://pypi.org/project/PySocks/) (≥ 1.7.1) — SOCKS proxy support for requests (used for Tor)
 
 Standard-library modules used: `sqlite3`, `hashlib`, `argparse`, `logging`, `signal`, `urllib`, `base64`, `datetime`, `os`, `time`, `json`, `threading`.
 
@@ -175,6 +178,7 @@ python crawler_app.py --config <PATH_TO_JSON> [OPTIONS]
 | `--no-normalize-whitespace` | flag | `False` | Preserve raw whitespaces (newlines, tabs) in the extracted text instead of collapsing them into a single space. |
 | `--plagiarism-db` | `str` | `db/plagiarism_index.db` | Path to the central similarity index SQLite database. |
 | `--plagiarism-threshold` | `float` | `0.8` | Similarity Jaccard threshold (0.0 to 1.0) above which articles are flagged as plagiarism/near-duplicates. |
+| `--proxy` | `str` | `None` | Proxy configuration for the connection (e.g. `'tor'` or SOCKS/HTTP proxy URL). Defaults to direct connection. |
 
 
 ### Crawling Multiple URLs via JSON Configuration
@@ -201,7 +205,8 @@ This format defines global plagiarism settings at the top level, applying them u
       "url": "https://www.tovima.gr",
       "respect_robots": true,
       "crawl_delay": 15,
-      "re_crawl_time": 24
+      "re_crawl_time": 24,
+      "proxy": "tor"
     }
   ]
 }
@@ -399,6 +404,7 @@ re-crawl skipped → pending (date_inserted refreshed)
 ├── config.py               # Shared constants (USER_AGENT)
 ├── database.py             # SQLite helpers (init, save, update, load, check, thread-local cache)
 ├── extractors.py           # News article content extractors (Strategy Pattern: Newspaper, Trafilatura, BS4)
+├── proxies.py              # Extensible proxy provider strategies and factory function
 ├── utils.py                # HTTP fetch, link extraction, hashing, directory utils
 ├── requirements.txt        # Python dependencies
 ├── config/

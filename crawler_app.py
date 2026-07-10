@@ -12,6 +12,7 @@ from database import init_db, save_links_to_db, update_link_in_db, \
     load_pending_links, get_database_name, is_database_empty, \
     is_duplicate_content
 from utils import fetch_page, extract_links, compute_hash, ensure_directory_exists, extract_article_content
+from proxies import get_proxy_provider
 from bs4 import BeautifulSoup
 from config import USER_AGENT, NORMALIZE_WHITESPACE, PLAGIARISM_INDEX_DB, PLAGIARISM_THRESHOLD
 from similarity import SimilarityIndexer
@@ -43,7 +44,7 @@ class SiteCrawler:
                  crawl_delay=30, resume=False, re_crawl_time=3,
                  logs_dir="logs", db_dir="db", batch_size=100,
                  workers=1, parser_engine="auto", normalize_whitespace=True,
-                 plagiarism_db=None, plagiarism_threshold=0.8):
+                 plagiarism_db=None, plagiarism_threshold=0.8, proxy=None):
         self.start_url = start_url
         self.respect_robots = respect_robots
         self.no_duplicates = no_duplicates
@@ -58,6 +59,7 @@ class SiteCrawler:
         self.normalize_whitespace = normalize_whitespace
         self.plagiarism_db = plagiarism_db
         self.plagiarism_threshold = plagiarism_threshold
+        self.proxy_provider = get_proxy_provider(proxy)
 
         self.domain = urlparse(start_url).netloc
         self.database_name = get_database_name(self.domain, self.db_dir)
@@ -103,7 +105,7 @@ class SiteCrawler:
         if self.respect_robots:
             self.robots_parser = RobotFileParser()
             robots_url = urljoin(self.start_url, "/robots.txt")
-            robots_content, _, robots_error_description = fetch_page(robots_url, logger=self.logger)
+            robots_content, _, robots_error_description = fetch_page(robots_url, proxies=self.proxy_provider.get_proxies(), logger=self.logger)
             if robots_error_description:
                 self.logger.warning(f"Failed to fetch robots.txt: {robots_error_description}")
                 return
@@ -140,7 +142,7 @@ class SiteCrawler:
 
         # Fetch the page
         self.logger.info(f"Crawling: {current_url}")
-        content, content_type, error_description = fetch_page(current_url, logger=self.logger)
+        content, content_type, error_description = fetch_page(current_url, proxies=self.proxy_provider.get_proxies(), logger=self.logger)
         if error_description:
             # Handle failure
             error_description_hash = compute_hash(error_description)
@@ -508,6 +510,12 @@ def main():
         default=PLAGIARISM_THRESHOLD,
         help="Similarity threshold (0.0 to 1.0) above which articles are flagged as plagiarized/near-duplicates (default: 0.8).",
     )
+    parser.add_argument(
+        "--proxy",
+        type=str,
+        default=None,
+        help="Proxy setting for crawling the URL (e.g. 'tor', 'http://127.0.0.1:8080'). Defaults to direct connection.",
+    )
     args = parser.parse_args()
 
     # Validate mutual exclusivity of --url and --config
@@ -533,7 +541,8 @@ def main():
                 parser_engine=args.parser,
                 normalize_whitespace=args.normalize_whitespace,
                 plagiarism_db=args.plagiarism_db,
-                plagiarism_threshold=args.plagiarism_threshold
+                plagiarism_threshold=args.plagiarism_threshold,
+                proxy=args.proxy
             )
             crawler.crawl()
         else:
@@ -585,7 +594,8 @@ def main():
                     parser_engine=site.get("parser", args.parser),
                     normalize_whitespace=site.get("normalize_whitespace", args.normalize_whitespace),
                     plagiarism_db=plagiarism_db,
-                    plagiarism_threshold=plagiarism_threshold
+                    plagiarism_threshold=plagiarism_threshold,
+                    proxy=site.get("proxy", args.proxy)
                 )
                 crawlers.append(crawler)
 
