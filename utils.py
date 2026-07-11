@@ -11,7 +11,10 @@ import certifi
 
 from extractors import get_extractor
 
-def fetch_page(url, max_retries=3, initial_timeout=60, proxies=None, session=None, logger=None):
+
+def fetch_page(
+    url, max_retries=3, initial_timeout=60, proxies=None, session=None, logger=None
+):
     """
     Fetch the content of a web page with retries and exponential backoff.
 
@@ -37,29 +40,43 @@ def fetch_page(url, max_retries=3, initial_timeout=60, proxies=None, session=Non
 
     while retry_count < max_retries:
         try:
-            response = client.get(url, headers=headers, timeout=timeout, verify=certifi.where(), proxies=proxies)
+            response = client.get(
+                url,
+                headers=headers,
+                timeout=timeout,
+                verify=certifi.where(),
+                proxies=proxies,
+            )
             response.raise_for_status()
 
             # Check the Content-Type header
             content_type = response.headers.get("Content-Type", "").lower()
 
             if "text/" in content_type:
-                 # Return text content as plain text
+                # Return text content as plain text
                 return response.text, content_type, None
             else:
-                 # Return binary content as Base64-encoded string
-                return base64.b64encode(response.content).decode("utf-8"), content_type, None
+                # Return binary content as Base64-encoded string
+                return (
+                    base64.b64encode(response.content).decode("utf-8"),
+                    content_type,
+                    None,
+                )
 
         except requests.exceptions.HTTPError as e:
             status_code = e.response.status_code if e.response is not None else None
             if status_code == 504:  # Handle 504 Gateway Timeout
                 retry_count += 1
                 if retry_count < max_retries:
-                    logger.warning(f"504 Gateway Timeout for {url}. Retrying in {timeout} seconds... (Attempt {retry_count}/{max_retries})")
+                    logger.warning(
+                        f"504 Gateway Timeout for {url}. Retrying in {timeout} seconds... (Attempt {retry_count}/{max_retries})"
+                    )
                     time.sleep(timeout)  # Wait before retrying
                     timeout *= 2  # Exponential backoff
                 else:
-                    error_description = f"504 Gateway Timeout after {max_retries} retries: {e}"
+                    error_description = (
+                        f"504 Gateway Timeout after {max_retries} retries: {e}"
+                    )
                     logger.error(f"Failed to fetch {url}: {error_description}")
                     return None, None, error_description
             else:
@@ -70,7 +87,9 @@ def fetch_page(url, max_retries=3, initial_timeout=60, proxies=None, session=Non
         except requests.exceptions.Timeout as e:
             retry_count += 1
             if retry_count < max_retries:
-                logger.warning(f"Timeout occurred for {url}. Retrying in {timeout} seconds... (Attempt {retry_count}/{max_retries})")
+                logger.warning(
+                    f"Timeout occurred for {url}. Retrying in {timeout} seconds... (Attempt {retry_count}/{max_retries})"
+                )
                 time.sleep(timeout)  # Wait before retrying
                 timeout *= 2  # Exponential backoff
             else:
@@ -85,7 +104,9 @@ def fetch_page(url, max_retries=3, initial_timeout=60, proxies=None, session=Non
             # are unlikely to succeed on retry, so we still cap at max_retries.
             retry_count += 1
             if retry_count < max_retries:
-                logger.warning(f"SSL error for {url}. Retrying in {timeout} seconds... (Attempt {retry_count}/{max_retries})")
+                logger.warning(
+                    f"SSL error for {url}. Retrying in {timeout} seconds... (Attempt {retry_count}/{max_retries})"
+                )
                 time.sleep(timeout)
                 timeout *= 2
             else:
@@ -98,7 +119,9 @@ def fetch_page(url, max_retries=3, initial_timeout=60, proxies=None, session=Non
             # Typically transient — worth a few retries with backoff.
             retry_count += 1
             if retry_count < max_retries:
-                logger.warning(f"Connection error for {url}. Retrying in {timeout} seconds... (Attempt {retry_count}/{max_retries})")
+                logger.warning(
+                    f"Connection error for {url}. Retrying in {timeout} seconds... (Attempt {retry_count}/{max_retries})"
+                )
                 time.sleep(timeout)
                 timeout *= 2
             else:
@@ -112,8 +135,8 @@ def fetch_page(url, max_retries=3, initial_timeout=60, proxies=None, session=Non
             logger.error(f"Failed to fetch {url}: {error_description}")
             return None, None, error_description
 
-
     return None, None, "Max retries reached without success"
+
 
 def extract_links(base_url, html_content, robots_parser, soup=None, logger=None):
     """Extract all links from the HTML content that belong to the same domain and are allowed by robots.txt.
@@ -127,19 +150,24 @@ def extract_links(base_url, html_content, robots_parser, soup=None, logger=None)
         logger = logging.getLogger(__name__)
     if soup is None:
         soup = BeautifulSoup(html_content, "html.parser")
-    base_netloc = urlparse(base_url).netloc  # hoisted outside the loop — urlparse is not free
+    base_netloc = urlparse(
+        base_url
+    ).netloc  # hoisted outside the loop — urlparse is not free
     links = set()
     for a_tag in soup.find_all("a", href=True):
         try:
             link = urljoin(base_url, a_tag["href"])
             if urlparse(link).netloc == base_netloc:
-                if not robots_parser or robots_parser.can_fetch(CrawlerConfig().user_agent, link):
+                if not robots_parser or robots_parser.can_fetch(
+                    CrawlerConfig().user_agent, link
+                ):
                     links.add(link)
                 else:
                     logger.info(f"Skipping disallowed link: {link}")
         except ValueError as e:
             logger.warning(f"Failed to extract href link: {a_tag['href']} ({e})")
     return links
+
 
 def compute_hash(content):
     """Compute the SHA-256 hash of the content, chunking large strings to minimize peak memory usage."""
@@ -153,6 +181,7 @@ def compute_hash(content):
             h.update(content[i : i + chunk_size].encode("utf-8"))
     return h.hexdigest()
 
+
 def ensure_directory_exists(directory, logger=None):
     """Ensure a directory exists. If not, create it."""
     if logger is None:
@@ -161,7 +190,15 @@ def ensure_directory_exists(directory, logger=None):
         os.makedirs(directory)
         logger.info(f"Created directory: {directory}")
 
-def extract_article_content(html_content, url=None, engine="auto", soup=None, normalize_whitespace=True, logger=None):
+
+def extract_article_content(
+    html_content,
+    url=None,
+    engine="auto",
+    soup=None,
+    normalize_whitespace=True,
+    logger=None,
+):
     """
     Extract the main content and metadata of an article from HTML.
 

@@ -75,7 +75,7 @@ class SiteCrawler:
         self.db = db_manager
         self.logger = logger
         self.robots_parser = None
-        
+
     def crawl(self):
         # core BFS loop
 ```

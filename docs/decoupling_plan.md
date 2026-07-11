@@ -1,6 +1,6 @@
 # Decoupling Crawler Engine from Domain-Specific Scraping (Supermarkets, Forums, etc.)
 
-Currently, the `SiteCrawler` and `database.py` schemas are tightly coupled to news scraping (e.g., article titles, authors, text, plagiarism checking, and newspaper3k/trafilatura extractors). 
+Currently, the `SiteCrawler` and `database.py` schemas are tightly coupled to news scraping (e.g., article titles, authors, text, plagiarism checking, and newspaper3k/trafilatura extractors).
 
 To extend the crawler for other websites like supermarkets or forums, we need to separate the **Queue & Fetching Engine** from the **Content Extraction & Processing Pipeline**.
 
@@ -72,12 +72,12 @@ We will define an interface (abstract class) `BaseContentProcessor`. Each scrape
 ```python
 class BaseContentProcessor:
     """Strategy interface for processing crawled pages."""
-    
+
     def process_page(self, crawler, url: str, content: str, content_type: str) -> tuple[bool, set[str], str]:
         """
-        Process page content, perform custom parsing/extraction, save payload data, 
+        Process page content, perform custom parsing/extraction, save payload data,
         and extract links for further crawling.
-        
+
         Returns:
             tuple: (success_status, extracted_links, action_flag)
         """
@@ -110,7 +110,7 @@ Inside `SiteCrawler.crawl_page()`:
 ```python
     # Fetch page
     content, content_type, error = fetch_page(url, ...)
-    
+
     # Delegate parsing and storage completely to the content processor
     success, new_links, action = self.processor.process_page(self, url, content, content_type)
 ```

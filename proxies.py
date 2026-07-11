@@ -1,29 +1,30 @@
 class ProxyProvider:
     """Base interface for connection proxy providers."""
+
     def get_proxies(self) -> dict:
         raise NotImplementedError
 
 
 class DirectConnectionProvider(ProxyProvider):
     """Fallback default connection (no proxy)."""
+
     def get_proxies(self) -> dict:
         return {}
 
 
 class StaticProxyProvider(ProxyProvider):
     """Standard proxy provider supporting HTTP, HTTPS, or SOCKS proxies."""
+
     def __init__(self, proxy_url: str):
         self.proxy_url = proxy_url
 
     def get_proxies(self) -> dict:
-        return {
-            "http": self.proxy_url,
-            "https": self.proxy_url
-        }
+        return {"http": self.proxy_url, "https": self.proxy_url}
 
 
 class TorProxyProvider(StaticProxyProvider):
     """Tor proxy provider mapping to a local SOCKS5h Tor proxy wrapper."""
+
     def __init__(self, tor_url: str = "socks5h://127.0.0.1:9050"):
         super().__init__(tor_url)
 

@@ -1,5 +1,4 @@
 import hashlib
-import sqlite3
 import struct
 import random
 import logging
@@ -27,7 +26,8 @@ def init_similarity_db(db_path, logger=None):
         cursor = conn.cursor()
 
         # Create global signatures index table
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS global_signatures (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 domain TEXT NOT NULL,
@@ -37,10 +37,12 @@ def init_similarity_db(db_path, logger=None):
                 date_inserted DATETIME DEFAULT CURRENT_TIMESTAMP,
                 text_signature BLOB NOT NULL
             )
-        """)
+        """
+        )
 
         # Create matching pair references
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS plagiarism_matches (
                 source_url TEXT NOT NULL,
                 target_url TEXT NOT NULL,
@@ -48,18 +50,23 @@ def init_similarity_db(db_path, logger=None):
                 match_type TEXT NOT NULL,
                 PRIMARY KEY (source_url, target_url)
             )
-        """)
+        """
+        )
 
         # Create LSH buckets table and index
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS lsh_buckets (
                 band_id INTEGER NOT NULL,
                 bucket_hash TEXT NOT NULL,
                 url TEXT NOT NULL,
                 PRIMARY KEY (band_id, bucket_hash, url)
             )
-        """)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_lsh_buckets_url ON lsh_buckets (url)")
+        """
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_lsh_buckets_url ON lsh_buckets (url)"
+        )
 
 
 def compute_minhash(text, num_permutations=128):
@@ -70,8 +77,12 @@ def compute_minhash(text, num_permutations=128):
     # We use a dedicated Random instance to avoid mutating the global random state.
     if not hasattr(compute_minhash, "coeff_a"):
         r = random.Random(42)
-        compute_minhash.coeff_a = [r.randint(1, prime - 1) for _ in range(num_permutations)]
-        compute_minhash.coeff_b = [r.randint(0, prime - 1) for _ in range(num_permutations)]
+        compute_minhash.coeff_a = [
+            r.randint(1, prime - 1) for _ in range(num_permutations)
+        ]
+        compute_minhash.coeff_b = [
+            r.randint(0, prime - 1) for _ in range(num_permutations)
+        ]
 
     coeff_a = compute_minhash.coeff_a
     coeff_b = compute_minhash.coeff_b
@@ -111,13 +122,16 @@ def calculate_similarity(sig1_blob, sig2_blob, num_permutations=128):
         return 0.0
     sig1 = struct.unpack(f"<{num_permutations}I", sig1_blob)
     sig2 = struct.unpack(f"<{num_permutations}I", sig2_blob)
-    matches = sum(1 for val1, val2 in zip(sig1, sig2) if val1 == val2 and val1 != 0xFFFFFFFF)
+    matches = sum(
+        1 for val1, val2 in zip(sig1, sig2) if val1 == val2 and val1 != 0xFFFFFFFF
+    )
     return matches / num_permutations
 
 
 def _similarity_worker_loop(db_path, job_queue):
     """Background worker thread that processes central similarity requests sequentially to avoid lock contention."""
     from database import close_thread_connections
+
     try:
         conn = get_connection(db_path)
         while True:
@@ -136,11 +150,11 @@ def _similarity_worker_loop(db_path, job_queue):
                 logger = logging.getLogger(job["logger_name"])
 
                 sig = compute_minhash(extracted_text)
-                sig_integers = struct.unpack('<128I', sig)
+                sig_integers = struct.unpack("<128I", sig)
                 bands = []
                 for i in range(16):
                     band_ints = sig_integers[i * 8 : (i + 1) * 8]
-                    band_hash = hashlib.md5(struct.pack('<8I', *band_ints)).hexdigest()
+                    band_hash = hashlib.md5(struct.pack("<8I", *band_ints)).hexdigest()
                     bands.append((i, band_hash))
 
                 # Query candidate signatures that share at least one LSH bucket (band collision)
@@ -164,37 +178,56 @@ def _similarity_worker_loop(db_path, job_queue):
                         rows = cursor.fetchmany(1000)
                         if not rows:
                             break
-                        for other_url, other_domain, other_title, other_date, other_sig in rows:
+                        for (
+                            other_url,
+                            other_domain,
+                            other_title,
+                            other_date,
+                            other_sig,
+                        ) in rows:
                             score = calculate_similarity(sig, other_sig)
                             if score >= threshold:
-                                matches.append({
-                                    "url": other_url,
-                                    "domain": other_domain,
-                                    "title": other_title,
-                                    "date_crawled": other_date,
-                                    "score": score
-                                })
+                                matches.append(
+                                    {
+                                        "url": other_url,
+                                        "domain": other_domain,
+                                        "title": other_title,
+                                        "date_crawled": other_date,
+                                        "score": score,
+                                    }
+                                )
 
                     # Save the new signature to global index database
-                    conn.execute("""
+                    conn.execute(
+                        """
                         INSERT OR REPLACE INTO global_signatures (domain, url, title, date_crawled, text_signature)
                         VALUES (?, ?, ?, ?, ?)
-                    """, (domain, url, title, date_crawled, sig))
+                    """,
+                        (domain, url, title, date_crawled, sig),
+                    )
 
                     # Delete existing LSH bands for this URL and write new ones
                     conn.execute("DELETE FROM lsh_buckets WHERE url = ?", (url,))
-                    band_rows = [(band_id, band_hash, url) for band_id, band_hash in bands]
-                    conn.executemany("""
+                    band_rows = [
+                        (band_id, band_hash, url) for band_id, band_hash in bands
+                    ]
+                    conn.executemany(
+                        """
                         INSERT INTO lsh_buckets (band_id, bucket_hash, url)
                         VALUES (?, ?, ?)
-                    """, band_rows)
+                    """,
+                        band_rows,
+                    )
 
                     # Record plagiarism matching pairs
                     for match in matches:
-                        conn.execute("""
+                        conn.execute(
+                            """
                             INSERT OR IGNORE INTO plagiarism_matches (source_url, target_url, similarity_score, match_type)
                             VALUES (?, ?, ?, ?)
-                        """, (url, match["url"], match["score"], "near_duplicate"))
+                        """,
+                            (url, match["url"], match["score"], "near_duplicate"),
+                        )
 
                 # Log any detected duplicate warnings
                 for match in matches:
@@ -207,13 +240,19 @@ def _similarity_worker_loop(db_path, job_queue):
                 # Attempt to retrieve the job's logger for context, otherwise fallback to the module-level logger
                 thread_logger = None
                 try:
-                    if 'job' in locals() and isinstance(job, dict) and "logger_name" in job:
+                    if (
+                        "job" in locals()
+                        and isinstance(job, dict)
+                        and "logger_name" in job
+                    ):
                         thread_logger = logging.getLogger(job["logger_name"])
                 except Exception:
                     pass
                 if thread_logger is None:
                     thread_logger = logging.getLogger(__name__)
-                thread_logger.error(f"Error in similarity indexing background thread for {db_path}: {e}")
+                thread_logger.error(
+                    f"Error in similarity indexing background thread for {db_path}: {e}"
+                )
             finally:
                 job_queue.task_done()
     finally:
@@ -236,13 +275,15 @@ class SimilarityIndexer:
                     t = threading.Thread(
                         target=_similarity_worker_loop,
                         args=(self.db_path, job_queue),
-                        daemon=True
+                        daemon=True,
                     )
                     t.start()
                     _active_workers[self.db_path] = (job_queue, t)
                 self.queue = _active_workers[self.db_path][0]
 
-    def index_and_check(self, url, domain, title, extracted_text, date_crawled, threshold=0.8):
+    def index_and_check(
+        self, url, domain, title, extracted_text, date_crawled, threshold=0.8
+    ):
         """Index the text signature and find existing matches above the similarity threshold.
 
         Returns:
@@ -253,11 +294,11 @@ class SimilarityIndexer:
 
         if self.sync:
             sig = compute_minhash(extracted_text)
-            sig_integers = struct.unpack('<128I', sig)
+            sig_integers = struct.unpack("<128I", sig)
             bands = []
             for i in range(16):
                 band_ints = sig_integers[i * 8 : (i + 1) * 8]
-                band_hash = hashlib.md5(struct.pack('<8I', *band_ints)).hexdigest()
+                band_hash = hashlib.md5(struct.pack("<8I", *band_ints)).hexdigest()
                 bands.append((i, band_hash))
 
             # Query candidate signatures that share at least one LSH bucket (band collision)
@@ -282,47 +323,66 @@ class SimilarityIndexer:
                     rows = cursor.fetchmany(1000)
                     if not rows:
                         break
-                    for other_url, other_domain, other_title, other_date, other_sig in rows:
+                    for (
+                        other_url,
+                        other_domain,
+                        other_title,
+                        other_date,
+                        other_sig,
+                    ) in rows:
                         score = calculate_similarity(sig, other_sig)
                         if score >= threshold:
-                            matches.append({
-                                "url": other_url,
-                                "domain": other_domain,
-                                "title": other_title,
-                                "date_crawled": other_date,
-                                "score": score
-                            })
+                            matches.append(
+                                {
+                                    "url": other_url,
+                                    "domain": other_domain,
+                                    "title": other_title,
+                                    "date_crawled": other_date,
+                                    "score": score,
+                                }
+                            )
 
                 # Save the new signature to global index database
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT OR REPLACE INTO global_signatures (domain, url, title, date_crawled, text_signature)
                     VALUES (?, ?, ?, ?, ?)
-                """, (domain, url, title, date_crawled, sig))
+                """,
+                    (domain, url, title, date_crawled, sig),
+                )
 
                 # Delete existing LSH bands for this URL and write new ones
                 conn.execute("DELETE FROM lsh_buckets WHERE url = ?", (url,))
                 band_rows = [(band_id, band_hash, url) for band_id, band_hash in bands]
-                conn.executemany("""
+                conn.executemany(
+                    """
                     INSERT INTO lsh_buckets (band_id, bucket_hash, url)
                     VALUES (?, ?, ?)
-                """, band_rows)
+                """,
+                    band_rows,
+                )
 
                 for match in matches:
-                    conn.execute("""
+                    conn.execute(
+                        """
                         INSERT OR IGNORE INTO plagiarism_matches (source_url, target_url, similarity_score, match_type)
                         VALUES (?, ?, ?, ?)
-                    """, (url, match["url"], match["score"], "near_duplicate"))
+                    """,
+                        (url, match["url"], match["score"], "near_duplicate"),
+                    )
             return matches
         else:
-            self.queue.put({
-                "url": url,
-                "domain": domain,
-                "title": title,
-                "extracted_text": extracted_text,
-                "date_crawled": date_crawled,
-                "threshold": threshold,
-                "logger_name": self.logger.name
-            })
+            self.queue.put(
+                {
+                    "url": url,
+                    "domain": domain,
+                    "title": title,
+                    "extracted_text": extracted_text,
+                    "date_crawled": date_crawled,
+                    "threshold": threshold,
+                    "logger_name": self.logger.name,
+                }
+            )
             return []
 
     @staticmethod

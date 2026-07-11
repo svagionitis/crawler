@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
+
 @dataclass
 class CrawlerConfig:
     # Target and strategy settings
@@ -58,6 +59,7 @@ class CrawlerConfig:
         config instance, using this config's values as fallbacks.
         """
         import copy
+
         merged = copy.deepcopy(self)
         for field_name in self.__dataclass_fields__:
             # Map JSON config key naming discrepancies if any (e.g. 'parser' vs 'parser_engine')
@@ -68,5 +70,3 @@ class CrawlerConfig:
             if key in site_dict:
                 setattr(merged, field_name, site_dict[key])
         return merged
-
-

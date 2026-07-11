@@ -61,19 +61,31 @@ class NewsContentProcessor(BaseContentProcessor):
 
         # Check for duplicate content using the database index.
         content_hash = compute_hash(content)
-        if crawler.no_duplicates and is_duplicate_content(crawler.database_name, content_hash, logger=crawler.logger):
+        if crawler.no_duplicates and is_duplicate_content(
+            crawler.database_name, content_hash, logger=crawler.logger
+        ):
             crawler.logger.info(f"Skipping duplicate content: {url}")
             return None, set(), None
 
         # Detect HTML once using the Content-Type header or a limited prefix search of
         # the first 1000 characters, avoiding memory-intensive full-page string copies.
         is_html = (content_type and "html" in content_type) or (
-            content and any(tag in content[:1000].lower() for tag in ("<html", "<body", "<p", "<div"))
+            content
+            and any(
+                tag in content[:1000].lower()
+                for tag in ("<html", "<body", "<p", "<div")
+            )
         )
         soup = BeautifulSoup(content, "html.parser") if is_html else None
 
         # Extract links FIRST using the pre-parsed soup (non-destructive)
-        new_links = extract_links(url, content, crawler.robots_parser, soup=soup, logger=crawler.logger) if soup else set()
+        new_links = (
+            extract_links(
+                url, content, crawler.robots_parser, soup=soup, logger=crawler.logger
+            )
+            if soup
+            else set()
+        )
 
         # Extract article content, passing the same soup so the bs4 path skips a redundant parse
         if is_html:
@@ -83,16 +95,30 @@ class NewsContentProcessor(BaseContentProcessor):
                 engine=crawler.parser_engine,
                 soup=soup,
                 normalize_whitespace=crawler.normalize_whitespace,
-                logger=crawler.logger
+                logger=crawler.logger,
             )
         else:
-            extracted = {"title": None, "text": None, "authors": None, "date": None, "keywords": None, "parser_used": None}
+            extracted = {
+                "title": None,
+                "text": None,
+                "authors": None,
+                "date": None,
+                "keywords": None,
+                "parser_used": None,
+            }
 
         # Memory Optimization: Free the heavy BeautifulSoup parse tree immediately
         soup = None
 
         # 1. Update core crawl queue status and raw HTML content cache
-        success = update_queue_link(crawler.database_name, url, content, content_hash, status="crawled", logger=crawler.logger)
+        success = update_queue_link(
+            crawler.database_name,
+            url,
+            content,
+            content_hash,
+            status="crawled",
+            logger=crawler.logger,
+        )
         if not success:
             return False, set(), None
 
@@ -113,11 +139,21 @@ class NewsContentProcessor(BaseContentProcessor):
                         extracted_keywords = excluded.extracted_keywords,
                         parser_used = excluded.parser_used
                     """,
-                    (url, extracted["title"], extracted["text"], extracted["authors"], extracted["date"], extracted["keywords"], extracted["parser_used"])
+                    (
+                        url,
+                        extracted["title"],
+                        extracted["text"],
+                        extracted["authors"],
+                        extracted["date"],
+                        extracted["keywords"],
+                        extracted["parser_used"],
+                    ),
                 )
                 conn.commit()
         except Exception as e:
-            crawler.logger.error(f"Failed to save article payload to news_articles table: {e}")
+            crawler.logger.error(
+                f"Failed to save article payload to news_articles table: {e}"
+            )
 
         # Memory Optimization: Free the raw content string immediately
         content_fetched = content is not None
@@ -132,7 +168,7 @@ class NewsContentProcessor(BaseContentProcessor):
                     title=extracted["title"] or "",
                     extracted_text=extracted["text"],
                     date_crawled=datetime.now(),
-                    threshold=crawler.plagiarism_threshold
+                    threshold=crawler.plagiarism_threshold,
                 )
                 for match in matches:
                     crawler.logger.warning(
@@ -176,15 +212,27 @@ class SupermarketContentProcessor(BaseContentProcessor):
         self._init_market_table(crawler.database_name)
 
         content_hash = compute_hash(content)
-        if crawler.no_duplicates and is_duplicate_content(crawler.database_name, content_hash, logger=crawler.logger):
+        if crawler.no_duplicates and is_duplicate_content(
+            crawler.database_name, content_hash, logger=crawler.logger
+        ):
             crawler.logger.info(f"Skipping duplicate content: {url}")
             return None, set(), None
 
         is_html = (content_type and "html" in content_type) or (
-            content and any(tag in content[:1000].lower() for tag in ("<html", "<body", "<p", "<div"))
+            content
+            and any(
+                tag in content[:1000].lower()
+                for tag in ("<html", "<body", "<p", "<div")
+            )
         )
         soup = BeautifulSoup(content, "html.parser") if is_html else None
-        new_links = extract_links(url, content, crawler.robots_parser, soup=soup, logger=crawler.logger) if soup else set()
+        new_links = (
+            extract_links(
+                url, content, crawler.robots_parser, soup=soup, logger=crawler.logger
+            )
+            if soup
+            else set()
+        )
 
         # Extract product details
         product_name = None
@@ -194,6 +242,7 @@ class SupermarketContentProcessor(BaseContentProcessor):
 
         if soup:
             import json
+
             # 1. Try parsing JSON-LD product markup
             for script in soup.find_all("script", type="application/ld+json"):
                 try:
@@ -221,23 +270,40 @@ class SupermarketContentProcessor(BaseContentProcessor):
 
             # 2. Fallback to OpenGraph / Meta tags
             if not product_name:
-                title_tag = soup.find("meta", property="og:title") or soup.find("meta", attrs={"name": "title"})
-                product_name = title_tag["content"] if title_tag else (soup.title.string if soup.title else None)
+                title_tag = soup.find("meta", property="og:title") or soup.find(
+                    "meta", attrs={"name": "title"}
+                )
+                product_name = (
+                    title_tag["content"]
+                    if title_tag
+                    else (soup.title.string if soup.title else None)
+                )
             if price is None:
-                price_tag = soup.find("meta", property="product:price:amount") or soup.find("meta", property="og:price:amount")
+                price_tag = soup.find(
+                    "meta", property="product:price:amount"
+                ) or soup.find("meta", property="og:price:amount")
                 if price_tag:
                     try:
                         price = float(price_tag["content"])
                     except ValueError:
                         pass
             if not sku:
-                sku_tag = soup.find("meta", property="product:retailer_item_id") or soup.find("meta", attrs={"name": "sku"})
+                sku_tag = soup.find(
+                    "meta", property="product:retailer_item_id"
+                ) or soup.find("meta", attrs={"name": "sku"})
                 sku = sku_tag["content"] if sku_tag else None
 
         soup = None
 
         # 1. Update Core Queue
-        success = update_queue_link(crawler.database_name, url, content, content_hash, status="crawled", logger=crawler.logger)
+        success = update_queue_link(
+            crawler.database_name,
+            url,
+            content,
+            content_hash,
+            status="crawled",
+            logger=crawler.logger,
+        )
         if not success:
             return False, set(), None
 
@@ -256,7 +322,7 @@ class SupermarketContentProcessor(BaseContentProcessor):
                         sku = excluded.sku,
                         category = excluded.category
                     """,
-                    (url, product_name, price, sku, category)
+                    (url, product_name, price, sku, category),
                 )
                 conn.commit()
         except Exception as e:
@@ -296,15 +362,27 @@ class ForumContentProcessor(BaseContentProcessor):
         self._init_forum_table(crawler.database_name)
 
         content_hash = compute_hash(content)
-        if crawler.no_duplicates and is_duplicate_content(crawler.database_name, content_hash, logger=crawler.logger):
+        if crawler.no_duplicates and is_duplicate_content(
+            crawler.database_name, content_hash, logger=crawler.logger
+        ):
             crawler.logger.info(f"Skipping duplicate content: {url}")
             return None, set(), None
 
         is_html = (content_type and "html" in content_type) or (
-            content and any(tag in content[:1000].lower() for tag in ("<html", "<body", "<p", "<div"))
+            content
+            and any(
+                tag in content[:1000].lower()
+                for tag in ("<html", "<body", "<p", "<div")
+            )
         )
         soup = BeautifulSoup(content, "html.parser") if is_html else None
-        new_links = extract_links(url, content, crawler.robots_parser, soup=soup, logger=crawler.logger) if soup else set()
+        new_links = (
+            extract_links(
+                url, content, crawler.robots_parser, soup=soup, logger=crawler.logger
+            )
+            if soup
+            else set()
+        )
 
         # Extract forum post details
         thread_title = None
@@ -314,17 +392,26 @@ class ForumContentProcessor(BaseContentProcessor):
 
         if soup:
             import json
+
             # 1. Try parsing JSON-LD DiscussionForumPosting markup
             for script in soup.find_all("script", type="application/ld+json"):
                 try:
                     data = json.loads(script.string)
                     items = data if isinstance(data, list) else [data]
                     for item in items:
-                        if item.get("@type") in ("DiscussionForumPosting", "SocialMediaPosting", "Comment"):
+                        if item.get("@type") in (
+                            "DiscussionForumPosting",
+                            "SocialMediaPosting",
+                            "Comment",
+                        ):
                             thread_title = item.get("headline") or item.get("name")
                             author_obj = item.get("author")
                             if author_obj:
-                                author = author_obj.get("name") if isinstance(author_obj, dict) else str(author_obj)
+                                author = (
+                                    author_obj.get("name")
+                                    if isinstance(author_obj, dict)
+                                    else str(author_obj)
+                                )
                             post_content = item.get("articleBody") or item.get("text")
                             post_date = item.get("datePublished")
                             break
@@ -342,7 +429,14 @@ class ForumContentProcessor(BaseContentProcessor):
         soup = None
 
         # 1. Update Core Queue
-        success = update_queue_link(crawler.database_name, url, content, content_hash, status="crawled", logger=crawler.logger)
+        success = update_queue_link(
+            crawler.database_name,
+            url,
+            content,
+            content_hash,
+            status="crawled",
+            logger=crawler.logger,
+        )
         if not success:
             return False, set(), None
 
@@ -361,7 +455,7 @@ class ForumContentProcessor(BaseContentProcessor):
                         post_content = excluded.post_content,
                         post_date = excluded.post_date
                     """,
-                    (url, thread_title, author, post_content, post_date)
+                    (url, thread_title, author, post_content, post_date),
                 )
                 conn.commit()
         except Exception as e:
@@ -379,7 +473,7 @@ def get_processor(processor_type: str) -> BaseContentProcessor:
     }
     normalized = (processor_type or "news").strip().lower()
     if normalized not in registry:
-        raise ValueError(f"Unknown processor type '{processor_type}'. Available options: {list(registry.keys())}")
+        raise ValueError(
+            f"Unknown processor type '{processor_type}'. Available options: {list(registry.keys())}"
+        )
     return registry[normalized]()
-
-

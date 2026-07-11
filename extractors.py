@@ -7,12 +7,14 @@ from bs4 import BeautifulSoup
 try:
     import trafilatura
     from trafilatura.metadata import extract_metadata as trafilatura_extract_metadata
+
     HAS_TRAFILATURA = True
 except ImportError:
     HAS_TRAFILATURA = False
 
 try:
-    import newspaper
+    import newspaper  # noqa: F401
+
     HAS_NEWSPAPER = True
 except ImportError:
     HAS_NEWSPAPER = False
@@ -33,8 +35,13 @@ class BaseExtractor(ABC):
         pass
 
     @abstractmethod
-    def extract(self, html_content: str, url: str | None = None,
-                soup: BeautifulSoup | None = None, logger: logging.Logger | None = None) -> dict:
+    def extract(
+        self,
+        html_content: str,
+        url: str | None = None,
+        soup: BeautifulSoup | None = None,
+        logger: logging.Logger | None = None,
+    ) -> dict:
         """Extract the title, text, authors, publication date, and keywords from HTML content.
 
         Returns:
@@ -53,12 +60,18 @@ class NewspaperExtractor(BaseExtractor):
     def is_available(self) -> bool:
         return HAS_NEWSPAPER
 
-    def extract(self, html_content: str, url: str | None = None,
-                soup: BeautifulSoup | None = None, logger: logging.Logger | None = None) -> dict:
+    def extract(
+        self,
+        html_content: str,
+        url: str | None = None,
+        soup: BeautifulSoup | None = None,
+        logger: logging.Logger | None = None,
+    ) -> dict:
         if logger is None:
             logger = logging.getLogger(__name__)
 
         import tempfile
+
         # newspaper3k does not create its own temp directory on Windows, which
         # causes a WinError 3 ("path not found") on first use. Create it here
         # so the library can always find it.
@@ -68,6 +81,7 @@ class NewspaperExtractor(BaseExtractor):
         os.makedirs(_newspaper_tmp, exist_ok=True)
 
         from newspaper import Article
+
         article_url = url if url else "https://example.com"
         article = Article(article_url)
         article.set_html(html_content)
@@ -113,12 +127,19 @@ class TrafilaturaExtractor(BaseExtractor):
     def is_available(self) -> bool:
         return HAS_TRAFILATURA
 
-    def extract(self, html_content: str, url: str | None = None,
-                soup: BeautifulSoup | None = None, logger: logging.Logger | None = None) -> dict:
+    def extract(
+        self,
+        html_content: str,
+        url: str | None = None,
+        soup: BeautifulSoup | None = None,
+        logger: logging.Logger | None = None,
+    ) -> dict:
         if logger is None:
             logger = logging.getLogger(__name__)
 
-        text = trafilatura.extract(html_content, include_comments=False, no_fallback=False)
+        text = trafilatura.extract(
+            html_content, include_comments=False, no_fallback=False
+        )
 
         metadata = None
         try:
@@ -163,8 +184,13 @@ class BS4Extractor(BaseExtractor):
     def is_available(self) -> bool:
         return True
 
-    def extract(self, html_content: str, url: str | None = None,
-                soup: BeautifulSoup | None = None, logger: logging.Logger | None = None) -> dict:
+    def extract(
+        self,
+        html_content: str,
+        url: str | None = None,
+        soup: BeautifulSoup | None = None,
+        logger: logging.Logger | None = None,
+    ) -> dict:
         if logger is None:
             logger = logging.getLogger(__name__)
 
@@ -183,33 +209,34 @@ class BS4Extractor(BaseExtractor):
 
         authors = None
         author_meta = (
-            soup.find("meta", attrs={"name": "author"}) or
-            soup.find("meta", attrs={"property": "article:author"}) or
-            soup.find("meta", attrs={"name": "twitter:creator"})
+            soup.find("meta", attrs={"name": "author"})
+            or soup.find("meta", attrs={"property": "article:author"})
+            or soup.find("meta", attrs={"name": "twitter:creator"})
         )
         if author_meta and author_meta.get("content"):
             authors = author_meta["content"].strip()
 
         date_str = None
         date_meta = (
-            soup.find("meta", attrs={"property": "article:published_time"}) or
-            soup.find("meta", attrs={"name": "pubdate"}) or
-            soup.find("meta", attrs={"name": "publish-date"}) or
-            soup.find("meta", attrs={"property": "og:article:published_time"})
+            soup.find("meta", attrs={"property": "article:published_time"})
+            or soup.find("meta", attrs={"name": "pubdate"})
+            or soup.find("meta", attrs={"name": "publish-date"})
+            or soup.find("meta", attrs={"property": "og:article:published_time"})
         )
         if date_meta and date_meta.get("content"):
             date_str = date_meta["content"].strip()
 
         keywords_str = None
-        keywords_meta = (
-            soup.find("meta", attrs={"name": "keywords"}) or
-            soup.find("meta", attrs={"name": "news_keywords"})
+        keywords_meta = soup.find("meta", attrs={"name": "keywords"}) or soup.find(
+            "meta", attrs={"name": "news_keywords"}
         )
         if keywords_meta and keywords_meta.get("content"):
             keywords_str = keywords_meta["content"].strip()
 
         # Decompose boilerplate elements
-        for element in soup(["script", "style", "nav", "footer", "header", "aside", "form", "iframe"]):
+        for element in soup(
+            ["script", "style", "nav", "footer", "header", "aside", "form", "iframe"]
+        ):
             element.decompose()
 
         text_blocks = []
@@ -250,8 +277,13 @@ class AutoExtractor(BaseExtractor):
     def is_available(self) -> bool:
         return True
 
-    def extract(self, html_content: str, url: str | None = None,
-                soup: BeautifulSoup | None = None, logger: logging.Logger | None = None) -> dict:
+    def extract(
+        self,
+        html_content: str,
+        url: str | None = None,
+        soup: BeautifulSoup | None = None,
+        logger: logging.Logger | None = None,
+    ) -> dict:
         if logger is None:
             logger = logging.getLogger(__name__)
 
@@ -259,7 +291,9 @@ class AutoExtractor(BaseExtractor):
         for extractor in self._extractors:
             if extractor.is_available() and extractor.name != "bs4":
                 try:
-                    return extractor.extract(html_content, url=url, soup=soup, logger=logger)
+                    return extractor.extract(
+                        html_content, url=url, soup=soup, logger=logger
+                    )
                 except Exception as e:
                     logger.error(
                         f"Error during content extraction with engine {extractor.name}: {e}. "
@@ -268,7 +302,9 @@ class AutoExtractor(BaseExtractor):
 
         # Fallback to BS4 if other methods fail or are not installed
         try:
-            return BS4Extractor().extract(html_content, url=url, soup=soup, logger=logger)
+            return BS4Extractor().extract(
+                html_content, url=url, soup=soup, logger=logger
+            )
         except Exception as e_fallback:
             logger.error(f"Critical error in fallback bs4 parser: {e_fallback}")
 
@@ -296,4 +332,3 @@ def get_extractor(name: str) -> BaseExtractor:
     else:
         # Fallback for unknown engines
         return BS4Extractor()
-

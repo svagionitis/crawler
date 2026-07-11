@@ -78,7 +78,7 @@ A new module `similarity.py` will manage signature calculations and queries:
 class SimilarityIndexer:
     def __init__(self, index_db_path="db/plagiarism_index.db"):
         self.db_path = index_db_path
-        
+
     def compute_signature(self, text: str) -> bytes:
         # Computes MinHash signature or SentenceTransformer vector
         pass
@@ -86,7 +86,7 @@ class SimilarityIndexer:
     def find_matches(self, url: str, signature: bytes, threshold: float = 0.8) -> list:
         # Queries global_signatures table for matches above threshold
         pass
-        
+
     def save_signature(self, url: str, domain: str, title: str, signature: bytes):
         # Inserts signature into central index
         pass
@@ -102,7 +102,7 @@ if extracted["text"]:
     # 2. Check similarities
     indexer = SimilarityIndexer()
     sig = indexer.compute_signature(extracted["text"])
-    
+
     matches = indexer.find_matches(current_url, sig, threshold=0.8)
     for match in matches:
         # Log and store matching pairs in local database
@@ -111,7 +111,7 @@ if extracted["text"]:
             f"with {match['score']*100}% similarity."
         )
         save_plagiarism_match_in_local_db(self.database_name, current_url, match)
-        
+
     # 3. Add to index
     indexer.save_signature(current_url, self.domain, extracted["title"], sig)
 ```

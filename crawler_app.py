@@ -3,13 +3,19 @@ import argparse
 import logging
 from typing import Optional
 import signal
-import time
 import os
 import json
 import queue
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
-from database import init_db, save_links_to_db, load_pending_links, get_database_name, is_database_empty, update_queue_link
+from database import (
+    init_db,
+    save_links_to_db,
+    load_pending_links,
+    get_database_name,
+    is_database_empty,
+    update_queue_link,
+)
 from utils import fetch_page, compute_hash, ensure_directory_exists
 from proxies import get_proxy_provider
 from processors import get_processor
@@ -122,29 +128,50 @@ class SiteCrawler:
         if self.respect_robots:
             self.robots_parser = RobotFileParser()
             robots_url = urljoin(self.start_url, "/robots.txt")
-            robots_content, _, robots_error_description = fetch_page(robots_url, proxies=proxies, session=self.session, logger=self.logger)
+            robots_content, _, robots_error_description = fetch_page(
+                robots_url, proxies=proxies, session=self.session, logger=self.logger
+            )
             if robots_error_description:
-                self.logger.warning(f"Failed to fetch robots.txt: {robots_error_description}")
+                self.logger.warning(
+                    f"Failed to fetch robots.txt: {robots_error_description}"
+                )
                 return
             try:
                 self.robots_parser.parse(robots_content.splitlines())
                 # Use the crawl delay from robots.txt if available
-                robots_crawl_delay = self.robots_parser.crawl_delay(self.config.user_agent)
-                if robots_crawl_delay is not None and robots_crawl_delay > self.crawl_delay:
+                robots_crawl_delay = self.robots_parser.crawl_delay(
+                    self.config.user_agent
+                )
+                if (
+                    robots_crawl_delay is not None
+                    and robots_crawl_delay > self.crawl_delay
+                ):
                     self.crawl_delay = robots_crawl_delay
                     self.robots_delay_applied = True
-                    self.logger.info(f"Using crawl delay from robots.txt: {self.crawl_delay} seconds")
+                    self.logger.info(
+                        f"Using crawl delay from robots.txt: {self.crawl_delay} seconds"
+                    )
             except Exception as e:
                 self.logger.warning(f"Failed to read robots.txt: {e}")
         # Initialize central similarity database and indexer
         self.indexer = SimilarityIndexer(self.plagiarism_db, logger=self.logger)
+
     def prepare_queue(self):
         """Seed the database queue with the start URL when not resuming."""
-        if self.resume and not is_database_empty(self.database_name, logger=self.logger):
+        if self.resume and not is_database_empty(
+            self.database_name, logger=self.logger
+        ):
             self.logger.info(f"Resuming from existing database: {self.database_name}")
         else:
             self.logger.info(f"Starting fresh crawl from: {self.start_url}")
-            save_links_to_db(self.database_name, self.domain, [self.start_url], self.robots_parser, re_crawl_time=self.re_crawl_time, logger=self.logger)
+            save_links_to_db(
+                self.database_name,
+                self.domain,
+                [self.start_url],
+                self.robots_parser,
+                re_crawl_time=self.re_crawl_time,
+                logger=self.logger,
+            )
 
     def crawl_page(self, current_url):
         """Crawl a single page, fetch content, check for duplicates, and save data.
@@ -153,17 +180,31 @@ class SiteCrawler:
             tuple: (success, new_links, action)
         """
         # Check robots.txt
-        if self.robots_parser and not self.robots_parser.can_fetch(self.config.user_agent, current_url):
+        if self.robots_parser and not self.robots_parser.can_fetch(
+            self.config.user_agent, current_url
+        ):
             self.logger.info(f"Skipping {current_url} due to robots.txt")
             return None, set(), "skip"
 
         # Fetch the page
         self.logger.info(f"Crawling: {current_url}")
-        content, content_type, error_description = fetch_page(current_url, proxies=self.proxy_provider.get_proxies(), session=self.session, logger=self.logger)
+        content, content_type, error_description = fetch_page(
+            current_url,
+            proxies=self.proxy_provider.get_proxies(),
+            session=self.session,
+            logger=self.logger,
+        )
         if error_description:
             # Handle failure
             error_description_hash = compute_hash(error_description)
-            update_queue_link(self.database_name, current_url, error_description, error_description_hash, status="pending", logger=self.logger)
+            update_queue_link(
+                self.database_name,
+                current_url,
+                error_description,
+                error_description_hash,
+                status="pending",
+                logger=self.logger,
+            )
             self.logger.info(f"Failed to crawl {current_url}: {error_description}")
             return None, set(), None
 
@@ -182,14 +223,23 @@ class SiteCrawler:
         success, new_links, action = self.crawl_page(current_url)
         if success and action is None:
             if new_links:
-                save_links_to_db(self.database_name, self.domain, list(new_links), self.robots_parser, re_crawl_time=self.re_crawl_time, logger=self.logger)
+                save_links_to_db(
+                    self.database_name,
+                    self.domain,
+                    list(new_links),
+                    self.robots_parser,
+                    re_crawl_time=self.re_crawl_time,
+                    logger=self.logger,
+                )
         elif not success and action:
             # Robot skip — no network request was made, skip delay
             return current_url
 
         # Respect the crawl delay after every real network request.
         # Event.wait() blocks efficiently and wakes up instantly if a shutdown is requested.
-        self.logger.info(f"Waiting for {self.crawl_delay} seconds before the next request...")
+        self.logger.info(
+            f"Waiting for {self.crawl_delay} seconds before the next request..."
+        )
         self.shutdown_event.wait(self.crawl_delay)
         return current_url
 
@@ -213,9 +263,16 @@ class SiteCrawler:
                     limit = target_fill - current_queued
                     try:
                         # Query SQLite for the next batch of pending URLs.
-                        batch = load_pending_links(self.database_name, self.re_crawl_time, limit=limit, logger=self.logger)
+                        batch = load_pending_links(
+                            self.database_name,
+                            self.re_crawl_time,
+                            limit=limit,
+                            logger=self.logger,
+                        )
                     except Exception as e:
-                        self.logger.error(f"Error querying pending links from database: {e}")
+                        self.logger.error(
+                            f"Error querying pending links from database: {e}"
+                        )
                         batch = []
 
                     # Filter out URLs that are already queued/in-flight to avoid duplicate crawling.
@@ -231,13 +288,17 @@ class SiteCrawler:
                     if new_urls:
                         for url in new_urls:
                             q.put(url)
-                        self.logger.info(f"Queued {len(new_urls)} new URLs. Queue size: {q.qsize()}")
+                        self.logger.info(
+                            f"Queued {len(new_urls)} new URLs. Queue size: {q.qsize()}"
+                        )
                     else:
                         # If no new links are found in the database, check if any URLs are still being processed.
                         # If all queued/in-flight URLs are finished, and database has no more URLs, crawling is complete.
                         with self._queue_lock:
                             if not self._queued_urls:
-                                self.logger.info("No pending links remaining and all workers finished. Crawl complete.")
+                                self.logger.info(
+                                    "No pending links remaining and all workers finished. Crawl complete."
+                                )
                                 self.shutdown_event.set()  # Signal workers and main thread to exit
                                 break
 
@@ -255,6 +316,7 @@ class SiteCrawler:
         This acts as the Consumer. These threads run continuously until shutdown.
         """
         from database import close_thread_connections
+
         try:
             while not self.shutdown_event.is_set():
                 try:
@@ -268,7 +330,9 @@ class SiteCrawler:
                     # Execute the crawl, page fetch, parsing, and link extraction.
                     self.crawl_worker(url)
                 except Exception as e:
-                    self.logger.error(f"Critical error during crawl execution for {url}: {e}")
+                    self.logger.error(
+                        f"Critical error during crawl execution for {url}: {e}"
+                    )
                 finally:
                     # Mark the item as done to update the queue's task tracker.
                     # Remove the URL from self._queued_urls inside a lock so the feeder thread
@@ -310,26 +374,34 @@ class SiteCrawler:
             q = queue.Queue(maxsize=self.batch_size * 2)
 
             # Spawn a background feeder thread (Producer) to query the SQLite DB and push to Queue
-            feeder_thread = threading.Thread(target=self._feeder_loop, args=(q,), daemon=True)
+            feeder_thread = threading.Thread(
+                target=self._feeder_loop, args=(q,), daemon=True
+            )
             feeder_thread.start()
 
             # Spawn workers (Consumers) to process URLs from the queue continuously.
             # Using ThreadPoolExecutor is clean because it manages worker threads lifetimes.
             # Each worker runs a persistent _worker_loop.
             with ThreadPoolExecutor(max_workers=self.workers) as executor:
-                futures = [executor.submit(self._worker_loop, q) for _ in range(self.workers)]
+                futures = [
+                    executor.submit(self._worker_loop, q) for _ in range(self.workers)
+                ]
 
                 # The main thread blocks on shutdown_event.wait().
                 # Wakes up when the feeder sets it (crawling complete) or when SIGINT sets it.
                 self.shutdown_event.wait()
 
                 # Cleanup: wait for worker threads to finish processing current tasks and exit
-                self.logger.info("Shutdown signal received. Waiting for worker threads to terminate...")
+                self.logger.info(
+                    "Shutdown signal received. Waiting for worker threads to terminate..."
+                )
                 for future in futures:
                     try:
                         future.result()
                     except Exception as exc:
-                        self.logger.error(f"Worker thread execution error during shutdown: {exc}")
+                        self.logger.error(
+                            f"Worker thread execution error during shutdown: {exc}"
+                        )
 
             # Wait for the feeder thread to exit
             feeder_thread.join(timeout=5.0)
@@ -359,7 +431,9 @@ def _handle_sigint(signum, frame):
 
     already_shutting_down = False
     with _active_crawlers_lock:
-        if _active_crawlers and all(c.shutdown_event.is_set() for c in _active_crawlers):
+        if _active_crawlers and all(
+            c.shutdown_event.is_set() for c in _active_crawlers
+        ):
             already_shutting_down = True
 
     if already_shutting_down or not _active_crawlers:
@@ -368,7 +442,9 @@ def _handle_sigint(signum, frame):
         print("\nForced shutdown. Exiting immediately.")
         raise KeyboardInterrupt
 
-    print("\nShutdown requested (Ctrl+C). Finishing in-flight pages … press Ctrl+C again to force quit.")
+    print(
+        "\nShutdown requested (Ctrl+C). Finishing in-flight pages … press Ctrl+C again to force quit."
+    )
     with _active_crawlers_lock:
         for crawler in _active_crawlers:
             crawler.shutdown_event.set()
@@ -381,7 +457,9 @@ def main():
     signal.signal(signal.SIGINT, _handle_sigint)
     default_cfg = CrawlerConfig()
 
-    parser = argparse.ArgumentParser(description="Crawl news sites and save data to SQLite.")
+    parser = argparse.ArgumentParser(
+        description="Crawl news sites and save data to SQLite."
+    )
     parser.add_argument("--url", help="The URL of the news site to crawl.")
     parser.add_argument(
         "--config",
@@ -481,15 +559,16 @@ def main():
         default=default_cfg.proxy,
         help="Proxy setting for crawling the URL (e.g. 'tor', 'http://127.0.0.1:8080'). Defaults to direct connection.",
     )
+
     def str_to_bool(value):
         if isinstance(value, bool):
             return value
-        if str(value).lower() in ('yes', 'true', 't', 'y', '1'):
+        if str(value).lower() in ("yes", "true", "t", "y", "1"):
             return True
-        elif str(value).lower() in ('no', 'false', 'f', 'n', '0'):
+        elif str(value).lower() in ("no", "false", "f", "n", "0"):
             return False
         else:
-            raise argparse.ArgumentTypeError('Boolean value expected (true/false).')
+            raise argparse.ArgumentTypeError("Boolean value expected (true/false).")
 
     parser.add_argument(
         "--keep-alive",
@@ -536,18 +615,28 @@ def main():
                 if "plagiarism_db" in config_data:
                     base_config.plagiarism_db = config_data["plagiarism_db"]
                 if "plagiarism_threshold" in config_data:
-                    base_config.plagiarism_threshold = config_data["plagiarism_threshold"]
+                    base_config.plagiarism_threshold = config_data[
+                        "plagiarism_threshold"
+                    ]
                 sites_list = config_data.get("sites", [])
                 if not isinstance(sites_list, list):
-                    parser.error("Configuration 'sites' field must be a JSON array of objects.")
+                    parser.error(
+                        "Configuration 'sites' field must be a JSON array of objects."
+                    )
             else:
-                parser.error("Configuration file must contain a JSON array or a JSON object with a 'sites' array.")
+                parser.error(
+                    "Configuration file must contain a JSON array or a JSON object with a 'sites' array."
+                )
 
             for i, site in enumerate(sites_list):
                 if not isinstance(site, dict):
-                    parser.error(f"Item at index {i} in configuration file is not a JSON object.")
+                    parser.error(
+                        f"Item at index {i} in configuration file is not a JSON object."
+                    )
                 if "url" not in site:
-                    parser.error(f"Item at index {i} in configuration file is missing the required 'url' field.")
+                    parser.error(
+                        f"Item at index {i} in configuration file is missing the required 'url' field."
+                    )
 
             # Build the per-site crawler instances using merged configs
             crawlers = []

@@ -531,4 +531,3 @@ This project is dual-licensed:
 - **Commercial**: For use in commercial, proprietary, or closed-source applications.
 
 See the [LICENSE](LICENSE) file for details.
-

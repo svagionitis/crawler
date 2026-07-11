@@ -129,7 +129,7 @@ Applying the memory optimization and exception safety fixes:
                  (url,)
              )
              rows = cursor.fetchall()
- 
+
 -            for other_url, other_domain, other_title, other_html, other_text, other_date, other_sig in rows:
 +            for other_url, other_domain, other_title, other_date, other_sig in rows:
                  score = calculate_similarity(sig, other_sig)

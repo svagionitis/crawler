@@ -4,7 +4,6 @@ import logging
 from config import CrawlerConfig
 from utils import ensure_directory_exists
 import os
-from typing import Optional
 import threading
 
 _local = threading.local()
@@ -35,7 +34,6 @@ def close_thread_connections():
         _local.connections.clear()
 
 
-
 def get_database_name(domain, db_dir, logger=None):
     """Generate the database filename based on the domain and save it in the specified db directory."""
 
@@ -44,6 +42,7 @@ def get_database_name(domain, db_dir, logger=None):
 
     # Generate the database filename
     return os.path.join(db_dir, f"crawled_data_{domain}.db")
+
 
 def init_db(database_name, logger=None):
     """Initialize the SQLite database and create the table if it doesn't exist."""
@@ -90,7 +89,9 @@ def init_db(database_name, logger=None):
             )
             deleted_links = cursor.rowcount
             if deleted_links:
-                logger.info(f"Auto-migration: removed {deleted_links} duplicate link row(s).")
+                logger.info(
+                    f"Auto-migration: removed {deleted_links} duplicate link row(s)."
+                )
 
             cursor.execute("DROP INDEX IF EXISTS idx_link")
             cursor.execute("CREATE UNIQUE INDEX idx_link ON crawled_data (link)")
@@ -98,7 +99,9 @@ def init_db(database_name, logger=None):
         # Create an index on the status column
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_status ON crawled_data (status)")
         # Create an index on the link, status columns
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_link_status ON crawled_data (link, status)")
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_link_status ON crawled_data (link, status)"
+        )
         # Unique index on content_hash for DB-level duplicate detection.
         # SQLite treats each NULL as distinct, so pending/failed rows (where
         # content_hash IS NULL) are never affected by this constraint.
@@ -129,10 +132,21 @@ def init_db(database_name, logger=None):
                     f"Auto-migration: removed {deleted} duplicate content_hash "
                     f"row(s) before creating unique index."
                 )
-        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_content_hash ON crawled_data (content_hash)")
+        cursor.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_content_hash ON crawled_data (content_hash)"
+        )
         conn.commit()
 
-def save_links_to_db(database_name, domain, links, robots_parser, status="pending", re_crawl_time=3, logger=None):
+
+def save_links_to_db(
+    database_name,
+    domain,
+    links,
+    robots_parser,
+    status="pending",
+    re_crawl_time=3,
+    logger=None,
+):
     """Save multiple links to the database in a batch, if allowed by robots.txt."""
     if logger is None:
         logger = logging.getLogger(__name__)
@@ -141,7 +155,9 @@ def save_links_to_db(database_name, domain, links, robots_parser, status="pendin
         with conn:
             cursor = conn.cursor()
             for link in links:
-                if robots_parser and not robots_parser.can_fetch(CrawlerConfig().user_agent, link):
+                if robots_parser and not robots_parser.can_fetch(
+                    CrawlerConfig().user_agent, link
+                ):
                     logger.info(f"Skipping disallowed link: {link}")
                     continue
 
@@ -159,13 +175,23 @@ def save_links_to_db(database_name, domain, links, robots_parser, status="pendin
                             ELSE date_inserted
                         END
                     """,
-                    (domain, datetime.now(), link, status, re_crawl_time, re_crawl_time),
+                    (
+                        domain,
+                        datetime.now(),
+                        link,
+                        status,
+                        re_crawl_time,
+                        re_crawl_time,
+                    ),
                 )
                 if cursor.rowcount > 0:
-                    logger.info(f"Saved/updated link in database: {link} (status: {status})")
+                    logger.info(
+                        f"Saved/updated link in database: {link} (status: {status})"
+                    )
             conn.commit()  # Commit all changes at once
     except sqlite3.Error as e:
         logger.error(f"Database error while saving links: {e}")
+
 
 def reset_link_to_pending(database_name, link, logger=None):
     """Reset a crawled link back to pending (for re-crawls)."""
@@ -188,7 +214,10 @@ def reset_link_to_pending(database_name, link, logger=None):
     except sqlite3.Error as e:
         logger.error(f"Database error while resetting link to pending: {e}")
 
-def update_queue_link(database_name, link, content, content_hash, status="crawled", logger=None) -> bool:
+
+def update_queue_link(
+    database_name, link, content, content_hash, status="crawled", logger=None
+) -> bool:
     """Update a link in the crawl queue with content, hash, date_crawled, and mark it with the given status.
 
     Returns:
@@ -220,6 +249,7 @@ def update_queue_link(database_name, link, content, content_hash, status="crawle
     except sqlite3.Error as e:
         logger.error(f"Database error while updating queue link: {e}")
         return False
+
 
 def load_pending_links(database_name, re_crawl_time=3, limit=None, logger=None):
     """Load pending links from the database.
@@ -256,6 +286,7 @@ def load_pending_links(database_name, re_crawl_time=3, limit=None, logger=None):
         logger.error(f"Failed to load pending links from database: {e}")
     return pending_links
 
+
 def is_database_empty(database_name, logger=None):
     """Check if the database is empty."""
     if logger is None:
@@ -270,6 +301,7 @@ def is_database_empty(database_name, logger=None):
     except sqlite3.Error as e:
         logger.error(f"Failed to check if database is empty: {e}")
         return True  # Assume empty if there's an error
+
 
 def check_re_crawl(database_name, link, re_crawl_time, logger=None):
     """
@@ -293,7 +325,9 @@ def check_re_crawl(database_name, link, re_crawl_time, logger=None):
             if date_crawled and date_crawled[0]:
                 last_crawled_time = datetime.fromisoformat(date_crawled[0])
                 time_since_last_crawl = datetime.now() - last_crawled_time
-                if time_since_last_crawl.total_seconds() <= re_crawl_time * 3600:  # Convert hours to seconds
+                if (
+                    time_since_last_crawl.total_seconds() <= re_crawl_time * 3600
+                ):  # Convert hours to seconds
                     return False  # Do not re-crawl
             return True  # Re-crawl
     except sqlite3.Error as e:
