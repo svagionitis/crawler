@@ -296,3 +296,4 @@ def get_extractor(name: str) -> BaseExtractor:
     else:
         # Fallback for unknown engines
         return BS4Extractor()
+

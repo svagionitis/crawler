@@ -78,7 +78,7 @@ def compute_minhash(text, num_permutations=128):
 
     # Clean text: normalize whitespace and lowercase for similarity robustness
     text = " ".join(text.split()).lower()
-    
+
     if len(text) < 3:
         # Return signature filled with maximum value if document contains no shingles
         return struct.pack(f"<{num_permutations}I", *[0xFFFFFFFF] * num_permutations)
@@ -90,7 +90,7 @@ def compute_minhash(text, num_permutations=128):
         shingle = text[i : i + 3]
         # Hash shingles into 32-bit integers using a slice of SHA-256
         shingle_hash = int(hashlib.sha256(shingle.encode("utf-8")).hexdigest()[:8], 16)
-        
+
         if shingle_hash in seen_hashes:
             continue
         seen_hashes.add(shingle_hash)

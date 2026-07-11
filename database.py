@@ -91,7 +91,7 @@ def init_db(database_name, logger=None):
             deleted_links = cursor.rowcount
             if deleted_links:
                 logger.info(f"Auto-migration: removed {deleted_links} duplicate link row(s).")
-            
+
             cursor.execute("DROP INDEX IF EXISTS idx_link")
             cursor.execute("CREATE UNIQUE INDEX idx_link ON crawled_data (link)")
             logger.info("Auto-migration: created UNIQUE index idx_link.")
@@ -150,11 +150,11 @@ def save_links_to_db(database_name, domain, links, robots_parser, status="pendin
                     INSERT INTO crawled_data (domain, date_inserted, link, status)
                     VALUES (?, ?, ?, ?)
                     ON CONFLICT(link) DO UPDATE SET
-                        status = CASE 
+                        status = CASE
                             WHEN status = 'crawled' AND (julianday('now') - julianday(date_crawled)) * 24 >= ? THEN 'pending'
                             ELSE status
                         END,
-                        date_inserted = CASE 
+                        date_inserted = CASE
                             WHEN status = 'pending' OR (status = 'crawled' AND (julianday('now') - julianday(date_crawled)) * 24 >= ?) THEN excluded.date_inserted
                             ELSE date_inserted
                         END
@@ -242,7 +242,7 @@ def load_pending_links(database_name, re_crawl_time=3, limit=None, logger=None):
         with conn:
             cursor = conn.cursor()
             query = """
-                SELECT link FROM crawled_data 
+                SELECT link FROM crawled_data
                 WHERE status = 'pending'
                   AND (date_crawled IS NULL OR (julianday('now') - julianday(date_crawled)) * 24 >= ?)
             """

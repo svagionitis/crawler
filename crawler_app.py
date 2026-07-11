@@ -42,7 +42,7 @@ class SiteCrawler:
     def __init__(self, start_url: str, config: Optional[CrawlerConfig] = None):
         self.start_url = start_url
         self.config = config if config is not None else CrawlerConfig()
-        
+
         self.respect_robots = self.config.respect_robots
         self.no_duplicates = self.config.no_duplicates
         self.crawl_delay = self.config.crawl_delay
@@ -380,7 +380,7 @@ def main():
     _original_sigint_handler = signal.getsignal(signal.SIGINT)
     signal.signal(signal.SIGINT, _handle_sigint)
     default_cfg = CrawlerConfig()
-    
+
     parser = argparse.ArgumentParser(description="Crawl news sites and save data to SQLite.")
     parser.add_argument("--url", help="The URL of the news site to crawl.")
     parser.add_argument(

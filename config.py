@@ -9,21 +9,21 @@ class CrawlerConfig:
     crawl_delay: int = 30
     resume: bool = False
     re_crawl_time: float = 3.0
-    
+
     # Path settings
     logs_dir: str = "logs"
     db_dir: str = "db"
-    
+
     # Execution tuning
     batch_size: int = 100
     workers: int = 1
     parser_engine: str = "auto"
     normalize_whitespace: bool = True
-    
+
     # Plagiarism check configuration
     plagiarism_db: str = "db/plagiarism_index.db"
     plagiarism_threshold: float = 0.8
-    
+
     # Network settings
     proxy: Optional[str] = None
     keep_alive: Optional[bool] = None
@@ -54,7 +54,7 @@ class CrawlerConfig:
 
     def merge_with_dict(self, site_dict: dict) -> "CrawlerConfig":
         """
-        Merge a site configuration dictionary (loaded from JSON) into a new 
+        Merge a site configuration dictionary (loaded from JSON) into a new
         config instance, using this config's values as fallbacks.
         """
         import copy
@@ -64,8 +64,9 @@ class CrawlerConfig:
             key = field_name
             if field_name == "parser_engine" and "parser" in site_dict:
                 key = "parser"
-            
+
             if key in site_dict:
                 setattr(merged, field_name, site_dict[key])
         return merged
+
 
