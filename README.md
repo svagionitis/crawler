@@ -524,6 +524,32 @@ Pending links remain in the database with `status = 'pending'`, so you can resum
 
 ---
 
+## Development
+
+### Pre-commit Hooks
+
+This project uses `pre-commit` to maintain code formatting, PEP 8 style conventions, and quality standards automatically before every git commit.
+
+#### Setup
+
+1. Install the dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. Install git hook scripts:
+   ```bash
+   pre-commit install
+   ```
+
+Now, every time you commit code, it will automatically run trailing whitespace checks, EOF fixes, YAML syntax validation, and **Ruff** formatting/linting checks.
+
+To run the checks manually against all files:
+```bash
+pre-commit run --all-files
+```
+
+---
+
 ## License
 
 This project is dual-licensed:
