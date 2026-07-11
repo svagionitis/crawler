@@ -1,7 +1,7 @@
 import sqlite3
 from datetime import datetime
 import logging
-from config import USER_AGENT
+from config import CrawlerConfig
 from utils import ensure_directory_exists
 import os
 from typing import Optional
@@ -141,7 +141,7 @@ def save_links_to_db(database_name, domain, links, robots_parser, status="pendin
         with conn:
             cursor = conn.cursor()
             for link in links:
-                if robots_parser and not robots_parser.can_fetch(USER_AGENT, link):
+                if robots_parser and not robots_parser.can_fetch(CrawlerConfig().user_agent, link):
                     logger.info(f"Skipping disallowed link: {link}")
                     continue
 

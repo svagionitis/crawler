@@ -4,7 +4,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import hashlib
 import logging
-from config import USER_AGENT
+from config import CrawlerConfig
 import os
 import base64
 import certifi
@@ -29,7 +29,7 @@ def fetch_page(url, max_retries=3, initial_timeout=60, proxies=None, session=Non
     """
     if logger is None:
         logger = logging.getLogger(__name__)
-    headers = {"User-Agent": USER_AGENT}
+    headers = {"User-Agent": CrawlerConfig().user_agent}
     retry_count = 0
     timeout = initial_timeout
 
@@ -133,7 +133,7 @@ def extract_links(base_url, html_content, robots_parser, soup=None, logger=None)
         try:
             link = urljoin(base_url, a_tag["href"])
             if urlparse(link).netloc == base_netloc:
-                if not robots_parser or robots_parser.can_fetch(USER_AGENT, link):
+                if not robots_parser or robots_parser.can_fetch(CrawlerConfig().user_agent, link):
                     links.add(link)
                 else:
                     logger.info(f"Skipping disallowed link: {link}")

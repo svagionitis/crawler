@@ -441,7 +441,7 @@ re-crawl skipped → pending (date_inserted refreshed)
 ```
 .
 ├── crawler_app.py          # Main entry point and crawl orchestration (SiteCrawler)
-├── config.py               # Shared constants (USER_AGENT)
+├── config.py               # Centralized CrawlerConfig dataclass containing default crawler settings
 ├── database.py             # SQLite helpers (init, save, update, load, check, thread-local cache)
 ├── extractors.py           # News article content extractors (Strategy Pattern: Newspaper, Trafilatura, BS4)
 ├── proxies.py              # Extensible proxy provider strategies and factory function
@@ -464,13 +464,21 @@ re-crawl skipped → pending (date_inserted refreshed)
 
 ## Configuration
 
-The only shared configuration lives in [`config.py`](config.py):
+Default crawler configurations reside in the `CrawlerConfig` dataclass in [`config.py`](config.py):
 
 ```python
-USER_AGENT = "Crawler/1.0 (+https://example.com/crawler)"
+@dataclass
+class CrawlerConfig:
+    respect_robots: bool = True
+    no_duplicates: bool = True
+    crawl_delay: int = 30
+    resume: bool = False
+    re_crawl_time: float = 3.0
+    ...
+    user_agent: str = "Crawler/1.0 (+https://example.com/crawler)"
 ```
 
-Update this value to identify your crawler in server access logs and to `robots.txt` parsers.
+Modify the field defaults inside `CrawlerConfig` to change global fallback settings (such as the default `user_agent` to identify your crawler in server access logs and to `robots.txt` parsers).
 
 ---
 

@@ -1,13 +1,71 @@
-# User agent for the crawler
-USER_AGENT = "Crawler/1.0 (+https://example.com/crawler)"
+from dataclasses import dataclass
+from typing import Optional
 
-# Default setting to normalize all whitespaces (tabs, newlines) into a single space in extracted text
-NORMALIZE_WHITESPACE = True
+@dataclass
+class CrawlerConfig:
+    # Target and strategy settings
+    respect_robots: bool = True
+    no_duplicates: bool = True
+    crawl_delay: int = 30
+    resume: bool = False
+    re_crawl_time: float = 3.0
+    
+    # Path settings
+    logs_dir: str = "logs"
+    db_dir: str = "db"
+    
+    # Execution tuning
+    batch_size: int = 100
+    workers: int = 1
+    parser_engine: str = "auto"
+    normalize_whitespace: bool = True
+    
+    # Plagiarism check configuration
+    plagiarism_db: str = "db/plagiarism_index.db"
+    plagiarism_threshold: float = 0.8
+    
+    # Network settings
+    proxy: Optional[str] = None
+    keep_alive: Optional[bool] = None
+    user_agent: str = "Crawler/1.0 (+https://example.com/crawler)"
+    processor: str = "news"
 
-# Plagiarism and near-duplicate content configuration
-PLAGIARISM_INDEX_DB = "db/plagiarism_index.db"
-PLAGIARISM_THRESHOLD = 0.8  # Default 80% similarity threshold for near-duplicate checks
+    @classmethod
+    def from_args(cls, args) -> "CrawlerConfig":
+        """Build config from parsed CLI argparse.Namespace."""
+        return cls(
+            respect_robots=args.respect_robots,
+            no_duplicates=args.no_duplicates,
+            crawl_delay=args.crawl_delay,
+            resume=args.resume,
+            re_crawl_time=args.re_crawl_time,
+            logs_dir=args.logs_dir,
+            db_dir=args.db_dir,
+            batch_size=args.batch_size,
+            workers=args.workers,
+            parser_engine=args.parser,
+            normalize_whitespace=args.normalize_whitespace,
+            plagiarism_db=args.plagiarism_db,
+            plagiarism_threshold=args.plagiarism_threshold,
+            proxy=args.proxy,
+            processor=args.processor,
+            keep_alive=args.keep_alive,
+        )
 
-# Keep-Alive connection pooling configuration (True to enable, False to disable, None for proxy-dependent default)
-KEEP_ALIVE = None
+    def merge_with_dict(self, site_dict: dict) -> "CrawlerConfig":
+        """
+        Merge a site configuration dictionary (loaded from JSON) into a new 
+        config instance, using this config's values as fallbacks.
+        """
+        import copy
+        merged = copy.deepcopy(self)
+        for field_name in self.__dataclass_fields__:
+            # Map JSON config key naming discrepancies if any (e.g. 'parser' vs 'parser_engine')
+            key = field_name
+            if field_name == "parser_engine" and "parser" in site_dict:
+                key = "parser"
+            
+            if key in site_dict:
+                setattr(merged, field_name, site_dict[key])
+        return merged
 

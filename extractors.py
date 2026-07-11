@@ -2,7 +2,6 @@ import os
 import logging
 from abc import ABC, abstractmethod
 from bs4 import BeautifulSoup
-from config import USER_AGENT
 
 # Optional imports for advanced article text extraction
 try:

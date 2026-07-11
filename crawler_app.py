@@ -1,6 +1,7 @@
 import requests
 import argparse
 import logging
+from typing import Optional
 import signal
 import time
 import os
@@ -12,7 +13,7 @@ from database import init_db, save_links_to_db, load_pending_links, get_database
 from utils import fetch_page, compute_hash, ensure_directory_exists
 from proxies import get_proxy_provider
 from processors import get_processor
-from config import USER_AGENT, NORMALIZE_WHITESPACE, PLAGIARISM_INDEX_DB, PLAGIARISM_THRESHOLD, KEEP_ALIVE
+from config import CrawlerConfig
 from similarity import SimilarityIndexer
 from datetime import datetime
 import threading
@@ -38,32 +39,29 @@ def get_log_file_name(domain, logs_dir, logger=None):
 class SiteCrawler:
     """Encapsulates the state and crawl logic for a single domain website."""
 
-    def __init__(self, start_url, respect_robots=True, no_duplicates=True,
-                 crawl_delay=30, resume=False, re_crawl_time=3,
-                 logs_dir="logs", db_dir="db", batch_size=100,
-                 workers=1, parser_engine="auto", normalize_whitespace=True,
-                 plagiarism_db=None, plagiarism_threshold=0.8, proxy=None,
-                 processor="news", keep_alive=None):
+    def __init__(self, start_url: str, config: Optional[CrawlerConfig] = None):
         self.start_url = start_url
-        self.respect_robots = respect_robots
-        self.no_duplicates = no_duplicates
-        self.crawl_delay = crawl_delay
-        self.resume = resume
-        self.re_crawl_time = re_crawl_time
-        self.logs_dir = logs_dir
-        self.db_dir = db_dir
-        self.batch_size = batch_size
-        self.workers = workers
-        self.parser_engine = parser_engine
-        self.normalize_whitespace = normalize_whitespace
-        self.plagiarism_db = plagiarism_db
-        self.plagiarism_threshold = plagiarism_threshold
-        self.proxy_provider = get_proxy_provider(proxy)
-        self.keep_alive = keep_alive
-        if isinstance(processor, str):
-            self.processor = get_processor(processor)
+        self.config = config if config is not None else CrawlerConfig()
+        
+        self.respect_robots = self.config.respect_robots
+        self.no_duplicates = self.config.no_duplicates
+        self.crawl_delay = self.config.crawl_delay
+        self.resume = self.config.resume
+        self.re_crawl_time = self.config.re_crawl_time
+        self.logs_dir = self.config.logs_dir
+        self.db_dir = self.config.db_dir
+        self.batch_size = self.config.batch_size
+        self.workers = self.config.workers
+        self.parser_engine = self.config.parser_engine
+        self.normalize_whitespace = self.config.normalize_whitespace
+        self.plagiarism_db = self.config.plagiarism_db
+        self.plagiarism_threshold = self.config.plagiarism_threshold
+        self.proxy_provider = get_proxy_provider(self.config.proxy)
+        self.keep_alive = self.config.keep_alive
+        if isinstance(self.config.processor, str):
+            self.processor = get_processor(self.config.processor)
         else:
-            self.processor = processor
+            self.processor = self.config.processor
 
         self.domain = urlparse(start_url).netloc
         self.database_name = get_database_name(self.domain, self.db_dir)
@@ -131,7 +129,7 @@ class SiteCrawler:
             try:
                 self.robots_parser.parse(robots_content.splitlines())
                 # Use the crawl delay from robots.txt if available
-                robots_crawl_delay = self.robots_parser.crawl_delay(USER_AGENT)
+                robots_crawl_delay = self.robots_parser.crawl_delay(self.config.user_agent)
                 if robots_crawl_delay is not None and robots_crawl_delay > self.crawl_delay:
                     self.crawl_delay = robots_crawl_delay
                     self.robots_delay_applied = True
@@ -155,7 +153,7 @@ class SiteCrawler:
             tuple: (success, new_links, action)
         """
         # Check robots.txt
-        if self.robots_parser and not self.robots_parser.can_fetch(USER_AGENT, current_url):
+        if self.robots_parser and not self.robots_parser.can_fetch(self.config.user_agent, current_url):
             self.logger.info(f"Skipping {current_url} due to robots.txt")
             return None, set(), "skip"
 
@@ -381,6 +379,8 @@ def main():
     global _original_sigint_handler
     _original_sigint_handler = signal.getsignal(signal.SIGINT)
     signal.signal(signal.SIGINT, _handle_sigint)
+    default_cfg = CrawlerConfig()
+    
     parser = argparse.ArgumentParser(description="Crawl news sites and save data to SQLite.")
     parser.add_argument("--url", help="The URL of the news site to crawl.")
     parser.add_argument(
@@ -401,7 +401,7 @@ def main():
     parser.add_argument(
         "--crawl-delay",
         type=int,
-        default=30,
+        default=default_cfg.crawl_delay,
         help="Crawl delay in seconds (default: 30). If robots.txt specifies a delay, it will override this.",
     )
     parser.add_argument(
@@ -412,31 +412,31 @@ def main():
     parser.add_argument(
         "--re-crawl-time",
         type=int,
-        default=3,
+        default=int(default_cfg.re_crawl_time),
         help="Time in hours after which a link should be re-crawled (default: 3).",
     )
     parser.add_argument(
         "--logs-dir",
         type=str,
-        default="logs",
+        default=default_cfg.logs_dir,
         help="Directory to save log files (default: logs).",
     )
     parser.add_argument(
         "--db-dir",
         type=str,
-        default="db",
+        default=default_cfg.db_dir,
         help="Directory to save database files (default: db).",
     )
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=100,
+        default=default_cfg.batch_size,
         help="Number of pending links to load from the database per batch (default: 100).",
     )
     parser.add_argument(
         "--workers",
         type=int,
-        default=1,
+        default=default_cfg.workers,
         help=(
             "Number of parallel worker threads (default: 1 = single-threaded). "
             "The crawl delay is automatically scaled by this factor so the "
@@ -447,7 +447,7 @@ def main():
     parser.add_argument(
         "--parser",
         type=str,
-        default="auto",
+        default=default_cfg.parser_engine,
         choices=["auto", "newspaper", "trafilatura", "bs4"],
         help=(
             "The content parsing engine to extract structured text & metadata. "
@@ -462,23 +462,23 @@ def main():
         action="store_false",
         help="Preserve raw whitespaces (newlines, tabs) in the extracted text.",
     )
-    parser.set_defaults(normalize_whitespace=NORMALIZE_WHITESPACE)
+    parser.set_defaults(normalize_whitespace=default_cfg.normalize_whitespace)
     parser.add_argument(
         "--plagiarism-db",
         type=str,
-        default=PLAGIARISM_INDEX_DB,
+        default=default_cfg.plagiarism_db,
         help="Path to the central similarity index SQLite database (default: db/plagiarism_index.db).",
     )
     parser.add_argument(
         "--plagiarism-threshold",
         type=float,
-        default=PLAGIARISM_THRESHOLD,
+        default=default_cfg.plagiarism_threshold,
         help="Similarity threshold (0.0 to 1.0) above which articles are flagged as plagiarized/near-duplicates (default: 0.8).",
     )
     parser.add_argument(
         "--proxy",
         type=str,
-        default=None,
+        default=default_cfg.proxy,
         help="Proxy setting for crawling the URL (e.g. 'tor', 'http://127.0.0.1:8080'). Defaults to direct connection.",
     )
     def str_to_bool(value):
@@ -494,13 +494,13 @@ def main():
     parser.add_argument(
         "--keep-alive",
         type=str_to_bool,
-        default=KEEP_ALIVE,
+        default=default_cfg.keep_alive,
         help="Enable/disable HTTP Keep-Alive connection pooling (true/false). Default: None (enable for direct connection, disable for proxy).",
     )
     parser.add_argument(
         "--processor",
         type=str,
-        default="news",
+        default=default_cfg.processor,
         help="The content extraction processor to use. Options: 'news' (default).",
     )
     args = parser.parse_args()
@@ -511,28 +511,13 @@ def main():
     if args.url and args.config:
         parser.error("arguments --url and --config are mutually exclusive")
 
+    # Build base config from CLI arguments
+    base_config = CrawlerConfig.from_args(args)
+
     try:
         if args.url:
             # Start crawling the single URL
-            crawler = SiteCrawler(
-                start_url=args.url,
-                respect_robots=args.respect_robots,
-                no_duplicates=args.no_duplicates,
-                crawl_delay=args.crawl_delay,
-                resume=args.resume,
-                re_crawl_time=args.re_crawl_time,
-                logs_dir=args.logs_dir,
-                db_dir=args.db_dir,
-                batch_size=args.batch_size,
-                workers=args.workers,
-                parser_engine=args.parser,
-                normalize_whitespace=args.normalize_whitespace,
-                plagiarism_db=args.plagiarism_db,
-                plagiarism_threshold=args.plagiarism_threshold,
-                proxy=args.proxy,
-                processor=args.processor,
-                keep_alive=args.keep_alive
-            )
+            crawler = SiteCrawler(start_url=args.url, config=base_config)
             crawler.crawl()
         else:
             # Load and validate configuration file
@@ -543,17 +528,15 @@ def main():
                 parser.error(f"Failed to read or parse configuration file: {e}")
 
             # Support both plain list structure and object with outer metadata structure
-            plagiarism_db = args.plagiarism_db
-            plagiarism_threshold = args.plagiarism_threshold
             sites_list = []
 
             if isinstance(config_data, list):
                 sites_list = config_data
             elif isinstance(config_data, dict):
                 if "plagiarism_db" in config_data:
-                    plagiarism_db = config_data["plagiarism_db"]
+                    base_config.plagiarism_db = config_data["plagiarism_db"]
                 if "plagiarism_threshold" in config_data:
-                    plagiarism_threshold = config_data["plagiarism_threshold"]
+                    base_config.plagiarism_threshold = config_data["plagiarism_threshold"]
                 sites_list = config_data.get("sites", [])
                 if not isinstance(sites_list, list):
                     parser.error("Configuration 'sites' field must be a JSON array of objects.")
@@ -566,28 +549,11 @@ def main():
                 if "url" not in site:
                     parser.error(f"Item at index {i} in configuration file is missing the required 'url' field.")
 
-            # Build the per-site crawler instances
+            # Build the per-site crawler instances using merged configs
             crawlers = []
             for site in sites_list:
-                crawler = SiteCrawler(
-                    start_url=site["url"],
-                    respect_robots=site.get("respect_robots", args.respect_robots),
-                    no_duplicates=site.get("no_duplicates", args.no_duplicates),
-                    crawl_delay=site.get("crawl_delay", args.crawl_delay),
-                    resume=site.get("resume", args.resume),
-                    re_crawl_time=site.get("re_crawl_time", args.re_crawl_time),
-                    logs_dir=site.get("logs_dir", args.logs_dir),
-                    db_dir=site.get("db_dir", args.db_dir),
-                    batch_size=site.get("batch_size", args.batch_size),
-                    workers=site.get("workers", args.workers),
-                    parser_engine=site.get("parser", args.parser),
-                    normalize_whitespace=site.get("normalize_whitespace", args.normalize_whitespace),
-                    plagiarism_db=plagiarism_db,
-                    plagiarism_threshold=plagiarism_threshold,
-                    proxy=site.get("proxy", args.proxy),
-                    processor=site.get("processor", args.processor),
-                    keep_alive=site.get("keep_alive", args.keep_alive)
-                )
+                site_config = base_config.merge_with_dict(site)
+                crawler = SiteCrawler(start_url=site["url"], config=site_config)
                 crawlers.append(crawler)
 
             def _crawl_site_task(crawler_instance):
