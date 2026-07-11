@@ -1,0 +1,10 @@
+# Optional dependencies for dynamic JavaScript rendering support
+
+# Playwright engine
+playwright>=1.40.0
+
+# Selenium engine
+selenium>=4.15.0
+
+# Pyppeteer engine
+pyppeteer>=1.0.2

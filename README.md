@@ -532,9 +532,13 @@ This project uses `pre-commit` to maintain code formatting, PEP 8 style conventi
 
 #### Setup
 
-1. Install the dependencies:
+1. Install the core dependencies:
    ```bash
    pip install -r requirements.txt
+   ```
+   *(Optional)* Install the dynamic browser rendering dependencies if crawling JavaScript-rendered sites:
+   ```bash
+   pip install -r requirements-js.txt
    ```
 2. Install git hook scripts:
    ```bash

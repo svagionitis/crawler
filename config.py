@@ -31,6 +31,11 @@ class CrawlerConfig:
     user_agent: str = "Crawler/1.0 (+https://example.com/crawler)"
     processor: str = "news"
 
+    # JavaScript rendering settings
+    js_rendering: bool = False
+    js_driver: str = "auto"  # 'playwright', 'selenium', 'puppeteer', 'auto'
+    auto_detect_js: bool = True
+
     @classmethod
     def from_args(cls, args) -> "CrawlerConfig":
         """Build config from parsed CLI argparse.Namespace."""
@@ -51,6 +56,9 @@ class CrawlerConfig:
             proxy=args.proxy,
             processor=args.processor,
             keep_alive=args.keep_alive,
+            js_rendering=getattr(args, "js_rendering", False),
+            js_driver=getattr(args, "js_driver", "auto"),
+            auto_detect_js=getattr(args, "auto_detect_js", True),
         )
 
     def merge_with_dict(self, site_dict: dict) -> "CrawlerConfig":

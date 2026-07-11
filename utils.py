@@ -12,11 +12,67 @@ import certifi
 from extractors import get_extractor
 
 
+def detects_javascript_required(html_content: str, logger=None) -> bool:
+    """
+    Detects if a page requires JavaScript to render content.
+    Checks for:
+    - Empty SPA entry points combined with script tags.
+    - Noscript warnings asking to enable JavaScript.
+    """
+    if not html_content:
+        return False
+    try:
+        soup = BeautifulSoup(html_content, "html.parser")
+
+        # Check noscript warning tags
+        noscript_tags = soup.find_all("noscript")
+        for ns in noscript_tags:
+            text = ns.get_text().lower()
+            if "javascript" in text and any(
+                x in text for x in ["enable", "required", "turn on", "support", "need"]
+            ):
+                if logger:
+                    logger.info(
+                        "Auto-detected JavaScript required based on <noscript> tag contents."
+                    )
+                return True
+
+        # Check for empty client-side rendering target (e.g. root, app) with script tags
+        body = soup.body
+        if body:
+            body_text = body.get_text().strip()
+            words = body_text.split()
+            scripts = soup.find_all("script")
+            if len(words) < 35 and len(scripts) >= 2:
+                target_divs = soup.find_all(
+                    "div", id=["root", "app", "__next", "app-root", "react-root"]
+                )
+                if target_divs:
+                    if logger:
+                        logger.info(
+                            "Auto-detected JavaScript required: SPA container found with minimal static text."
+                        )
+                    return True
+    except Exception as e:
+        if logger:
+            logger.warning(f"Error parsing HTML for JS auto-detection: {e}")
+    return False
+
+
 def fetch_page(
-    url, max_retries=3, initial_timeout=60, proxies=None, session=None, logger=None
+    url,
+    max_retries=3,
+    initial_timeout=60,
+    proxies=None,
+    session=None,
+    logger=None,
+    js_rendering=False,
+    js_driver="auto",
+    auto_detect_js=True,
 ):
     """
     Fetch the content of a web page with retries and exponential backoff.
+    Optionally renders JS using Playwright, Selenium, or Puppeteer.
 
     Args:
         url (str): The URL to fetch.
@@ -25,6 +81,9 @@ def fetch_page(
         proxies (dict): Optional dictionary mapping protocol to proxy URL.
         session: Optional requests.Session instance to reuse connections.
         logger: Optional logger instance. Falls back to module-level logger.
+        js_rendering (bool): Force rendering with JavaScript.
+        js_driver (str): Browser engine to use if js_rendering is True.
+        auto_detect_js (bool): Dynamically upgrade to JS rendering if page appears JS-dependent.
 
     Returns:
         tuple: (content, content_type, error_description) where content is the page content or None,
@@ -32,6 +91,24 @@ def fetch_page(
     """
     if logger is None:
         logger = logging.getLogger(__name__)
+
+    # If JS rendering is forced
+    if js_rendering:
+        try:
+            from rendering import render_page
+
+            logger.info(f"Using dynamic browser rendering ({js_driver}) for {url}")
+            content = render_page(
+                url,
+                driver_type=js_driver,
+                timeout_secs=initial_timeout,
+                proxies=proxies,
+            )
+            return content, "text/html", None
+        except Exception as e:
+            logger.error(f"Dynamic browser rendering failed for {url}: {e}")
+            return None, None, str(e)
+
     headers = {"User-Agent": CrawlerConfig().user_agent}
     retry_count = 0
     timeout = initial_timeout
@@ -53,8 +130,27 @@ def fetch_page(
             content_type = response.headers.get("Content-Type", "").lower()
 
             if "text/" in content_type:
-                # Return text content as plain text
-                return response.text, content_type, None
+                html_text = response.text
+                if auto_detect_js and "text/html" in content_type:
+                    if detects_javascript_required(html_text, logger=logger):
+                        logger.info(
+                            f"Upgrading to dynamic rendering for {url} due to detected JS requirement."
+                        )
+                        try:
+                            from rendering import render_page
+
+                            rendered_content = render_page(
+                                url,
+                                driver_type=js_driver,
+                                timeout_secs=initial_timeout,
+                                proxies=proxies,
+                            )
+                            return rendered_content, "text/html", None
+                        except Exception as render_err:
+                            logger.warning(
+                                f"Dynamic rendering upgrade failed for {url}, falling back to static text. Error: {render_err}"
+                            )
+                return html_text, content_type, None
             else:
                 # Return binary content as Base64-encoded string
                 return (

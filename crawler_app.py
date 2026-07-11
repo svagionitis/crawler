@@ -193,6 +193,9 @@ class SiteCrawler:
             proxies=self.proxy_provider.get_proxies(),
             session=self.session,
             logger=self.logger,
+            js_rendering=self.config.js_rendering,
+            js_driver=self.config.js_driver,
+            auto_detect_js=self.config.auto_detect_js,
         )
         if error_description:
             # Handle failure
@@ -582,6 +585,25 @@ def main():
         default=default_cfg.processor,
         help="The content extraction processor to use. Options: 'news' (default).",
     )
+    parser.add_argument(
+        "--js-rendering",
+        action="store_true",
+        help="Enable dynamic JavaScript rendering using a headless browser.",
+    )
+    parser.add_argument(
+        "--js-driver",
+        type=str,
+        default=default_cfg.js_driver,
+        choices=["auto", "playwright", "selenium", "puppeteer"],
+        help="Headless browser engine/driver to use (default: auto).",
+    )
+    parser.add_argument(
+        "--no-auto-detect-js",
+        dest="auto_detect_js",
+        action="store_false",
+        help="Disable automatic detection of JavaScript-dependent websites.",
+    )
+    parser.set_defaults(auto_detect_js=default_cfg.auto_detect_js)
     args = parser.parse_args()
 
     # Validate mutual exclusivity of --url and --config
