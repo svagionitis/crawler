@@ -24,11 +24,11 @@ The Code diagram details class layouts, inheritance structures, and interface re
  |--------------------| |--------------------| |--------------------|
  | respect_robots     | | <<interface>>      | | <<interface>>      |
  | crawl_delay        | | +get_proxies()     | | +process_page()    |
- | ...                | +---------+----------+ +---------+----------+
- +--------------------+           |                      |
-                                  | Implements           | Implements
-                                  v                      v
-                        +---------+----------+ +---------+----------+
+ | js_rendering       | +---------+----------+ +---------+----------+
+ | js_driver          |           |                      |
+ | auto_detect_js     |           | Implements           | Implements
+ | ...                |           v                      v
+ +--------------------+ +---------+----------+ +---------+----------+
                         |  DirectConnection  | |    NewsContent     |
                         |      Provider      | |     Processor      |
                         +--------------------+ +--------------------+
@@ -37,7 +37,7 @@ The Code diagram details class layouts, inheritance structures, and interface re
                         +---------+----------+
                         |  StaticProxy-      |
                         |  Provider          |
-                        +---------+----------+
+                        +--------------------+
                                   ^
                                   | Inherits
                         +---------+----------+
@@ -80,6 +80,9 @@ classDiagram
         +keep_alive: bool
         +user_agent: str
         +processor: str
+        +js_rendering: bool
+        +js_driver: str
+        +auto_detect_js: bool
         +from_args(args)
         +merge_with_dict(site_dict)
     }

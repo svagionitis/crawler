@@ -54,7 +54,7 @@ graph TB
 ## Details & Description
 
 ### 1. Python CLI Engine
-* **Technology**: Python 3.x (Standard library, `requests`, `beautifulsoup4`, `trafilatura`, `newspaper3k`).
+* **Technology**: Python 3.x (Standard library, `requests`, `beautifulsoup4`, `trafilatura`, `newspaper3k`, `playwright`, `selenium`, `pyppeteer`).
 * **Responsibility**: Orchestrates crawls. If crawling multiple sites, spawns thread pools. Initiates requests, runs HTML extractors, generates MinHash signatures for plagiarism checks, and handles shutdown signals.
 
 ### 2. JSON Configurations
