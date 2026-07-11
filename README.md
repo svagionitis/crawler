@@ -532,14 +532,36 @@ This project uses `pre-commit` to maintain code formatting, PEP 8 style conventi
 
 #### Setup
 
+You can install the dependencies either using `pyproject.toml` (recommended) or via the legacy `requirements.txt` files.
+
+##### Option A: Using `pyproject.toml` (Recommended)
+
+To install the project in editable mode (`-e`) along with its core dependencies:
+```bash
+pip install -e .
+```
+
+To install the project with dynamic JavaScript browser rendering support:
+```bash
+pip install -e .[js]
+```
+
+To install all dependencies including development tools (like `pre-commit`):
+```bash
+pip install -e .[js,dev]
+```
+
+##### Option B: Using legacy requirements files
+
 1. Install the core dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-   *(Optional)* Install the dynamic browser rendering dependencies if crawling JavaScript-rendered sites:
+   *(Optional)* Install the dynamic browser rendering dependencies:
    ```bash
    pip install -r requirements-js.txt
    ```
+
 2. Install git hook scripts:
    ```bash
    pre-commit install
