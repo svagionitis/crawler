@@ -7,3 +7,7 @@ NORMALIZE_WHITESPACE = True
 # Plagiarism and near-duplicate content configuration
 PLAGIARISM_INDEX_DB = "db/plagiarism_index.db"
 PLAGIARISM_THRESHOLD = 0.8  # Default 80% similarity threshold for near-duplicate checks
+
+# Keep-Alive connection pooling configuration (True to enable, False to disable, None for proxy-dependent default)
+KEEP_ALIVE = None
+

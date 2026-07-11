@@ -12,7 +12,7 @@ from database import init_db, save_links_to_db, load_pending_links, get_database
 from utils import fetch_page, compute_hash, ensure_directory_exists
 from proxies import get_proxy_provider
 from processors import get_processor
-from config import USER_AGENT, NORMALIZE_WHITESPACE, PLAGIARISM_INDEX_DB, PLAGIARISM_THRESHOLD
+from config import USER_AGENT, NORMALIZE_WHITESPACE, PLAGIARISM_INDEX_DB, PLAGIARISM_THRESHOLD, KEEP_ALIVE
 from similarity import SimilarityIndexer
 from datetime import datetime
 import threading
@@ -43,7 +43,7 @@ class SiteCrawler:
                  logs_dir="logs", db_dir="db", batch_size=100,
                  workers=1, parser_engine="auto", normalize_whitespace=True,
                  plagiarism_db=None, plagiarism_threshold=0.8, proxy=None,
-                 processor="news"):
+                 processor="news", keep_alive=None):
         self.start_url = start_url
         self.respect_robots = respect_robots
         self.no_duplicates = no_duplicates
@@ -59,6 +59,7 @@ class SiteCrawler:
         self.plagiarism_db = plagiarism_db
         self.plagiarism_threshold = plagiarism_threshold
         self.proxy_provider = get_proxy_provider(proxy)
+        self.keep_alive = keep_alive
         if isinstance(processor, str):
             self.processor = get_processor(processor)
         else:
@@ -104,13 +105,20 @@ class SiteCrawler:
         # Initialize database schemas and indexes
         init_db(self.database_name, logger=self.logger)
 
-        # Initialize HTTP connection session if no proxies are configured (enables HTTP Keep-Alive connection pooling)
+        # Initialize HTTP connection session based on keep-alive configuration
         proxies = self.proxy_provider.get_proxies()
-        if not proxies:
+        if self.keep_alive is None:
+            # Default behavior: keep-alive for direct connection, not keep-alive for proxy connection
+            keep_alive_enabled = not proxies
+        else:
+            keep_alive_enabled = self.keep_alive
+
+        if keep_alive_enabled:
             self.session = requests.Session()
-            self.logger.info("Direct connection: enabled HTTP Keep-Alive connection pooling.")
+            self.logger.info("HTTP Keep-Alive connection pooling enabled.")
         else:
             self.session = None
+            self.logger.info("HTTP Keep-Alive connection pooling disabled.")
 
         # Initialize robots.txt parser
         if self.respect_robots:
@@ -473,6 +481,22 @@ def main():
         default=None,
         help="Proxy setting for crawling the URL (e.g. 'tor', 'http://127.0.0.1:8080'). Defaults to direct connection.",
     )
+    def str_to_bool(value):
+        if isinstance(value, bool):
+            return value
+        if str(value).lower() in ('yes', 'true', 't', 'y', '1'):
+            return True
+        elif str(value).lower() in ('no', 'false', 'f', 'n', '0'):
+            return False
+        else:
+            raise argparse.ArgumentTypeError('Boolean value expected (true/false).')
+
+    parser.add_argument(
+        "--keep-alive",
+        type=str_to_bool,
+        default=KEEP_ALIVE,
+        help="Enable/disable HTTP Keep-Alive connection pooling (true/false). Default: None (enable for direct connection, disable for proxy).",
+    )
     parser.add_argument(
         "--processor",
         type=str,
@@ -506,7 +530,8 @@ def main():
                 plagiarism_db=args.plagiarism_db,
                 plagiarism_threshold=args.plagiarism_threshold,
                 proxy=args.proxy,
-                processor=args.processor
+                processor=args.processor,
+                keep_alive=args.keep_alive
             )
             crawler.crawl()
         else:
@@ -560,7 +585,8 @@ def main():
                     plagiarism_db=plagiarism_db,
                     plagiarism_threshold=plagiarism_threshold,
                     proxy=site.get("proxy", args.proxy),
-                    processor=site.get("processor", args.processor)
+                    processor=site.get("processor", args.processor),
+                    keep_alive=site.get("keep_alive", args.keep_alive)
                 )
                 crawlers.append(crawler)
 

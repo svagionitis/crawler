@@ -181,6 +181,7 @@ python crawler_app.py --config <PATH_TO_JSON> [OPTIONS]
 | `--plagiarism-db` | `str` | `db/plagiarism_index.db` | Path to the central similarity index SQLite database. |
 | `--plagiarism-threshold` | `float` | `0.8` | Similarity Jaccard threshold (0.0 to 1.0) above which articles are flagged as plagiarism/near-duplicates. |
 | `--proxy` | `str` | `None` | Proxy configuration for the connection (e.g. `'tor'` or SOCKS/HTTP proxy URL). Defaults to a direct connection (explicitly overriding environment proxies). |
+| `--keep-alive` | `bool` | `None` | Enable/disable HTTP Keep-Alive connection pooling (`true`/`false`). Defaults to `None` (which enables it for direct connections and disables it for proxy connections). |
 | `--processor` | `str` | `news` | Content extraction processor strategy (`'news'`). |
 
 
@@ -250,6 +251,8 @@ If no proxy is specified (locally in the JSON config or via the CLI `--proxy` pa
 To optimize performance and resource utilization, the crawler implements a hybrid connection strategy:
 - **Direct Connection**: Utilizes a persistent `requests.Session()` to enable HTTP Keep-Alive connection pooling. This significantly reduces latency and local/remote socket overhead, speeding up crawls by up to 3x–5x.
 - **Proxy/Tor Connection**: Disables session pooling and opens a fresh TCP/TLS socket per request (using `requests.get()`). This allows proxy services to successfully perform IP rotation and ensures Tor circuit changes apply to individual fetches.
+
+This behavior can be explicitly overridden by specifying the `--keep-alive <true|false>` parameter on the command line or by configuring `"keep_alive": true/false` per site in the JSON configuration file. By default, keep-alive is enabled for direct connections and disabled for proxy connections.
 
 ### Multi-threading & Rate Limiting
 
