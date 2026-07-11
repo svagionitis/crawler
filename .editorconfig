@@ -1,10 +1,17 @@
-# Visual Studio generated .editorconfig file with C++ settings.
+# EditorConfig configuration for the Crawler project
 root = true
 
 [*]
 indent_style = space
 indent_size = 4
 tab_width = 4
+end_of_line = lf
 insert_final_newline = true
 trim_trailing_whitespace = true
 
+[*.py]
+charset = utf-8
+max_line_length = 79
+
+[*.json]
+indent_size = 2
