@@ -183,6 +183,9 @@ python crawler_app.py --config <PATH_TO_JSON> [OPTIONS]
 | `--proxy` | `str` | `None` | Proxy configuration for the connection (e.g. `'tor'` or SOCKS/HTTP proxy URL). Defaults to a direct connection (explicitly overriding environment proxies). |
 | `--keep-alive` | `bool` | `None` | Enable/disable HTTP Keep-Alive connection pooling (`true`/`false`). Defaults to `None` (which enables it for direct connections and disables it for proxy connections). |
 | `--processor` | `str` | `news` | Content extraction processor strategy (`'news'`). |
+| `--js-rendering` | flag | `False` | Enable dynamic JavaScript rendering using a headless browser. |
+| `--js-driver` | `str` | `auto` | Headless browser engine/driver to use (`auto`, `playwright`, `selenium`, `puppeteer`). |
+| `--no-auto-detect-js` | flag | `False` | Disable automatic detection/upgrading of JavaScript-dependent websites. |
 
 
 ### Crawling Multiple URLs via JSON Configuration
