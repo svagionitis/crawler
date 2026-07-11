@@ -48,6 +48,7 @@ A lightweight, polite web crawler written in Python that scrapes websites and st
 crawler_app.py        ← entry point / orchestration
   ├── config.py       ← global constants (User-Agent string)
   ├── utils.py        ← HTTP fetching, link extraction, hashing, filesystem helpers
+  ├── rendering.py    ← JavaScript rendering engine (Playwright/Selenium/Pyppeteer)
   ├── proxies.py      ← connection proxy provider classes and factory
   ├── processors.py   ← decoupled page processors strategy pipeline
   └── database.py     ← SQLite schema, CRUD operations
@@ -449,8 +450,11 @@ re-crawl skipped → pending (date_inserted refreshed)
 ├── extractors.py           # News article content extractors (Strategy Pattern: Newspaper, Trafilatura, BS4)
 ├── proxies.py              # Extensible proxy provider strategies and factory function
 ├── processors.py           # Decoupled page content processors (Strategy Pattern: NewsContentProcessor)
+├── rendering.py            # Headless browser rendering wrappers (Playwright, Selenium, Puppeteer)
 ├── utils.py                # HTTP fetch, link extraction, hashing, directory utils
-├── requirements.txt        # Python dependencies
+├── requirements.txt        # Core Python dependencies
+├── requirements-js.txt     # Optional dynamic browser rendering dependencies
+├── pyproject.toml          # Modern project configuration and package setup
 ├── config/
 │   ├── news-sites-gr.json  # Example multi-site crawl configuration (Greek news outlets)
 │   └── sites.json          # Alternative/extended site configuration
@@ -521,7 +525,7 @@ Pending links remain in the database with `status = 'pending'`, so you can resum
 
 ## Known Limitations & Future Work
 
-- **Dynamic / JavaScript-Rendered Sites** — The crawler currently performs static HTTP requests. Sites that rely on client-side JavaScript framework rendering (React, Vue, etc.) or load articles dynamically will not have their text contents fully captured. Incorporating a headless browser rendering engine (such as Playwright, Selenium, or Pyppeteer) is a planned feature to handle dynamic web content.
+- **Dynamic / JavaScript-Rendered Sites** — The crawler supports scraping sites with client-side JavaScript rendering using headless browser engines (Playwright, Selenium, or Puppeteer/Pyppeteer), but this functionality is **currently untested** in production environments.
 - **Plagiarism & Duplicate Content Detection** — To check if news reports are plagiarized or cover identical stories, extracted article texts can be compared using natural language processing (NLP) and similarity algorithms (such as MinHash/LSH, Cosine Similarity via TF-IDF or word/document embeddings, and sequence alignment).
 - **Link extraction limited to `<a href>`** — `<link>`, `<script src>`, sitemaps, and RSS feeds are not followed.
 
