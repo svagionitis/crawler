@@ -1,8 +1,9 @@
 from bs4 import BeautifulSoup
-from utils import extract_links, extract_article_content, compute_hash
+from utils import extract_links, compute_hash
 from database import is_duplicate_content, update_queue_link, get_connection
 from datetime import datetime
 from .base import BaseContentProcessor
+from extractors import get_site_extractor
 
 
 class NewsContentProcessor(BaseContentProcessor):
@@ -68,13 +69,14 @@ class NewsContentProcessor(BaseContentProcessor):
             else set()
         )
 
-        # Extract article content, passing the same soup so the bs4 path skips a redundant parse
+        # Route URL to the appropriate site extractor (or Generic fallback)
         if is_html:
-            extracted = extract_article_content(
+            site_extractor = get_site_extractor(url)
+            extracted = site_extractor.extract(
                 content,
                 url=url,
-                engine=crawler.parser_engine,
                 soup=soup,
+                parser_engine=crawler.parser_engine,
                 normalize_whitespace=crawler.normalize_whitespace,
                 logger=crawler.logger,
             )

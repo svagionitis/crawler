@@ -6,6 +6,23 @@ from .engines import (
     AutoExtractor,
     get_extractor,
 )
+from .base import BaseSiteExtractor
+from .generic import GenericExtractor
+
+# Registry of site-specific extractors.
+# Place specialized extractors first.
+_SITE_EXTRACTORS = [
+    # Custom site-specific extractors will be added here
+]
+
+
+def get_site_extractor(url: str) -> BaseSiteExtractor:
+    """Find a suitable site extractor for the given URL, defaulting to GenericExtractor."""
+    for extractor_cls in _SITE_EXTRACTORS:
+        if extractor_cls.suitable(url):
+            return extractor_cls()
+    return GenericExtractor()
+
 
 __all__ = [
     "BaseExtractor",
@@ -14,4 +31,7 @@ __all__ = [
     "BS4Extractor",
     "AutoExtractor",
     "get_extractor",
+    "BaseSiteExtractor",
+    "GenericExtractor",
+    "get_site_extractor",
 ]
