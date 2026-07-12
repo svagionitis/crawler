@@ -1,6 +1,4 @@
-# Legacy wrapper for backward compatibility. Imports from the new extractors package.
-
-from extractors import (
+from .engines import (
     BaseExtractor,
     NewspaperExtractor,
     TrafilaturaExtractor,
