@@ -50,7 +50,14 @@ crawler_app.py        ← entry point / orchestration
   ├── utils.py        ← HTTP fetching, link extraction, hashing, filesystem helpers
   ├── rendering.py    ← JavaScript rendering engine (Playwright/Selenium/Pyppeteer)
   ├── proxies.py      ← connection proxy provider classes and factory
-  ├── processors.py   ← decoupled page processors strategy pipeline
+  ├── processors/     ← decoupled page processors package
+  │     ├── news.py   ← routes pages to the appropriate site extractors
+  │     ...
+  ├── extractors/     ← modular URL-routing extractors package
+  │     ├── base.py   ← base site extractor class
+  │     ├── generic.py← fallback content extractor
+  │     ├── news_sites.py ← site-specific extractors
+  │     └── engines.py← base parser engines (newspaper, trafilatura, bs4)
   └── database.py     ← SQLite schema, CRUD operations
 scripts/
   └── crawl-links.ps1 ← PowerShell launcher for parallel multi-site crawls
@@ -280,6 +287,11 @@ For downstream text similarity, plagiarism checking, or general news analysis, t
   - `bs4`: Standard BeautifulSoup cleaning fallback (removes `<script>`, `<style>`, `<nav>`, `<footer>`, etc., and retrieves `<p>` blocks).
   - `auto` (Default): Attempts to use `newspaper` first, falls back to `trafilatura` if unavailable, and uses `bs4` if neither is installed.
 
+- **URL-Routing Site Extractors (InfoExtractor Pattern)**:
+  Inspired by the `yt-dlp` architecture, the crawler maps fetched URLs to specific site extractor classes based on regex match rules (`_VALID_URL`).
+  - **Site-Specific Extractors**: Statically declared in `extractors/news_sites.py` for all 40+ configured news domains (e.g. `KathimeriniGrExtractor`, `TovimaGrExtractor`). This provides an extensible base to override generic parsing rules with custom HTML selectors or custom endpoint requests on a per-site basis.
+  - **Fallback Routing**: If no site-specific regex matches a URL, the routing pipeline automatically defaults to `GenericExtractor` (which utilizes the default parser engines).
+
 
 **Basic crawl (no robots.txt, 30 s delay):**
 ```bash
@@ -374,6 +386,7 @@ CREATE TABLE crawled_data (
     date_inserted      DATETIME NOT NULL,   -- when the link was first discovered / last updated
     date_crawled       DATETIME,            -- when the page was last successfully fetched
     link               TEXT     NOT NULL,
+    mime_type          TEXT,                -- MIME type parsed from Content-Type (e.g. 'text/html')
     content            TEXT,                -- HTML (text) or Base64 (binary)
     content_hash       TEXT,                -- SHA-256 of content; also stored on fetch errors
     status             TEXT     NOT NULL    -- 'pending' | 'crawled'
@@ -425,6 +438,7 @@ CREATE UNIQUE INDEX idx_content_hash  ON crawled_data (content_hash);
 > When the crawler starts against a database created before these changes:
 > 1. `init_db` automatically detects if `idx_link` is a regular index. If so, it deduplicates the table (keeping the oldest record per link), drops the old index, and recreates `idx_link` as a `UNIQUE` index. This is required to support the high-performance single-roundtrip `UPSERT` operations.
 > 2. `init_db` detects whether `idx_content_hash` is present. If missing, it removes duplicate content hashes (keeping the oldest record per hash) and creates the unique index.
+> 3. `init_db` checks whether the `mime_type` column exists. If missing, it automatically performs an `ALTER TABLE` to add the column without losing any data.
 >
 > No manual intervention is required — these migrations run once on the first startup and are completely transparent.
 
@@ -447,9 +461,19 @@ re-crawl skipped → pending (date_inserted refreshed)
 ├── crawler_app.py          # Main entry point and crawl orchestration (SiteCrawler)
 ├── config.py               # Centralized CrawlerConfig dataclass containing default crawler settings
 ├── database.py             # SQLite helpers (init, save, update, load, check, thread-local cache)
-├── extractors.py           # News article content extractors (Strategy Pattern: Newspaper, Trafilatura, BS4)
+├── extractors/             # Modular extractors package (InfoExtractor Pattern)
+│   ├── __init__.py         # Package entrypoint and registry factory
+│   ├── base.py             # Base abstract class for site-specific extractors
+│   ├── engines.py          # Content parsing engines (newspaper, trafilatura, bs4)
+│   ├── generic.py          # Fallback generic extractor
+│   └── news_sites.py       # Alphabetically sorted, statically declared site-specific extractors
+├── processors/             # Modular page processors package (Strategy Pattern)
+│   ├── __init__.py         # Package entrypoint and registry factory
+│   ├── base.py             # Abstract base class for content processors
+│   ├── news.py             # NewsContentProcessor (routes to site-specific extractors)
+│   ├── supermarket.py      # SupermarketContentProcessor
+│   └── forum.py            # ForumContentProcessor
 ├── proxies.py              # Extensible proxy provider strategies and factory function
-├── processors.py           # Decoupled page content processors (Strategy Pattern: NewsContentProcessor)
 ├── rendering.py            # Headless browser rendering wrappers (Playwright, Selenium, Puppeteer)
 ├── utils.py                # HTTP fetch, link extraction, hashing, directory utils
 ├── requirements.txt        # Core Python dependencies
