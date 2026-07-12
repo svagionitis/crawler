@@ -29,11 +29,11 @@ The Code diagram details class layouts, inheritance structures, and interface re
  | auto_detect_js     |           | Implements           | Implements
  | ...                |           v                      v
  +--------------------+ +---------+----------+ +---------+----------+
-                        |  DirectConnection  | |    NewsContent     |
-                        |      Provider      | |     Processor      |
-                        +--------------------+ +--------------------+
-                                  ^
-                                  | Inherits
+                        |  DirectConnection  | |  ContentProcessor  |
+                        |      Provider      | |   Implementations  |
+                        +--------------------+ | (News, Supermarket,|
+                                  ^            |  Forum Processors) |
+                                  | Inherits   +--------------------+
                         +---------+----------+
                         |  StaticProxy-      |
                         |  Provider          |
@@ -126,6 +126,27 @@ classDiagram
     BaseExtractor <|-- TrafilaturaExtractor
     BaseExtractor <|-- BS4Extractor
 
+    class BaseSiteExtractor {
+        <<interface>>
+        +_VALID_URL: str
+        +suitable(url) bool
+        +name() str
+        +extract(html, url, soup, parser_engine, normalize_whitespace) dict
+    }
+    class GenericExtractor {
+        +extract(html, url, soup, parser_engine, normalize_whitespace) dict
+    }
+    class KathimeriniGrExtractor {
+        +extract(html, url, soup, parser_engine, normalize_whitespace) dict
+    }
+    class TovimaGrExtractor {
+        +extract(html, url, soup, parser_engine, normalize_whitespace) dict
+    }
+
+    BaseSiteExtractor <|-- GenericExtractor
+    BaseSiteExtractor <|-- KathimeriniGrExtractor
+    BaseSiteExtractor <|-- TovimaGrExtractor
+
     class ContentProcessor {
         <<interface>>
         +process_page(crawler, url, content, content_type)
@@ -133,8 +154,16 @@ classDiagram
     class NewsContentProcessor {
         +process_page(crawler, url, content, content_type)
     }
+    class SupermarketContentProcessor {
+        +process_page(crawler, url, content, content_type)
+    }
+    class ForumContentProcessor {
+        +process_page(crawler, url, content, content_type)
+    }
 
     ContentProcessor <|-- NewsContentProcessor
+    ContentProcessor <|-- SupermarketContentProcessor
+    ContentProcessor <|-- ForumContentProcessor
 
     class SimilarityIndexer {
         +db_path: str
@@ -161,4 +190,5 @@ classDiagram
 ### Interface Polymorphism
 * **ProxyProvider**: Inherited by `DirectConnectionProvider` (returns an empty dictionary overriding environment configurations), `StaticProxyProvider` (binds a custom proxy URL), and `TorProxyProvider` (routes through a local SOCKS5h port wrapper).
 * **BaseExtractor**: Dynamic extraction strategy engine. Delegates processing to `NewspaperExtractor`, `TrafilaturaExtractor`, or `BS4Extractor` based on engine availability.
-* **ContentProcessor**: Implements processing flow strategies. Can be extended to support custom strategies (such as Forums, RSS Feeds, or generic blogs).
+* **BaseSiteExtractor**: URL-routing site extractor interface. Inherited by `GenericExtractor` (fallback) and 40+ statically declared site-specific extractors (e.g., `KathimeriniGrExtractor`, `TovimaGrExtractor`).
+* **ContentProcessor**: Implements processing flow strategies. Inherited by `NewsContentProcessor` (handles news schemas, similarity indexing, plagiarism detection), `SupermarketContentProcessor` (extracts prices and product catalogs), and `ForumContentProcessor` (extracts threads and posts).

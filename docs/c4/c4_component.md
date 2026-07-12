@@ -32,10 +32,10 @@ The Component diagram shows the internal structure of the Python CLI Engine cont
 |                                                         |                           |
 |                                                         | Employs                   |
 |                                                         v                           |
-|   +-------------------+        Delegates    +-----------+-----------+               |
-|   |  ContentProcessor |<--------------------+    Extractor Strategy |               |
-|   | (news strategy for|                     |   (Trafilatura, BS4,  |               |
-|   |  saving/matching) |                     |    Newspaper3k)       |               |
+|   +-------------------+        Routes to    +-----------+-----------+               |
+|   | Content Processors|<--------------------+  URL-routing Site     |               |
+|   | (news, supermarket|                     |  Extractors (engines, |               |
+|   |  forum packages)  |                     |  custom news extract) |               |
 |   +---------+---------+                     +-----------------------+               |
 |             |                                                                       |
 |             +-----------------------+                                               |
@@ -44,7 +44,7 @@ The Component diagram shows the internal structure of the Python CLI Engine cont
 |   +---------+---------+   +---------+---------+                                     |
 |   |   Database API    |   | SimilarityIndexer |                                     |
 |   |  (SQLite schemas, |   | (MinHash, Jaccard |                                     |
-|   |   queries, queue) |   |  similarity checks|                                     |
+|   |   queries, queue) |   |  similarity check)|                                     |
 |   +-------------------+   +-------------------+                                     |
 +-------------------------------------------------------------------------------------+
 ```
@@ -58,8 +58,8 @@ graph TD
     ProxyProvider["ProxyProvider (proxies.py)"]
     FetchPage["fetch_page (utils.py)"]
     RenderPage["render_page (rendering.py)"]
-    Extractor["Extractor Strategy (extractors.py)"]
-    Processor["ContentProcessor (processors.py)"]
+    Extractor["URL-Routing Site Extractor (extractors/)"]
+    Processor["Content Processor Strategy (processors/)"]
     DatabaseAPI["Database API (database.py)"]
     SimilarityIndexer["SimilarityIndexer (similarity.py)"]
 
@@ -67,8 +67,8 @@ graph TD
     SiteCrawler -->|Sets proxies| ProxyProvider
     SiteCrawler -->|Fetches pages| FetchPage
     FetchPage -->|Delegates dynamic JS rendering| RenderPage
-    FetchPage -->|Extracts links & HTML| Extractor
     SiteCrawler -->|Processes page data| Processor
+    Processor -->|Routes URL to specific Site Extractor| Extractor
     Processor -->|Saves state & links| DatabaseAPI
     Processor -->|Generates signatures & checks duplicates| SimilarityIndexer
 ```
@@ -90,11 +90,11 @@ graph TD
 ### 5. Browser Renderer (`rendering.py`)
 * Unified browser controller wrapping Playwright, Selenium, and Puppeteer/Pyppeteer, providing fallback mechanisms to fetch pages requiring full JavaScript execution.
 
-### 6. Extractor Strategy (`extractors.py`)
-* Implements Strategy Pattern to extract text content, metadata, titles, and publishing dates using `BeautifulSoup`, `Trafilatura`, or `newspaper3k` extractors depending on availability and preference.
+### 6. Extractor Strategy (`extractors/`)
+* Contains modular URL-routing site-specific extractors (InfoExtractor Pattern) and core parser engine wrappers (newspaper, trafilatura, bs4). Exposes `get_site_extractor(url)` to retrieve domain-matched classes.
 
-### 7. ContentProcessor Strategy (`processors.py`)
-* Dictates what to do with crawled HTML and text. The default `NewsContentProcessor` parses the text, checks database constraints, generates fingerprint hashes, checks for plagiarism, and saves the article.
+### 7. ContentProcessor Strategy (`processors/`)
+* Implements Strategy Pattern to process page data. Contains `NewsContentProcessor` (parses, indexes similarity, checks plagiarism), `SupermarketContentProcessor` (parses catalogs and product pricing), and `ForumContentProcessor` (parses thread posts).
 
 ### 8. Database API (`database.py`)
 * Interface mapping read/write operations to SQLite, handling thread-local connection pools, queue structures, and schema migrations.
