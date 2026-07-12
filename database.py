@@ -61,12 +61,21 @@ def init_db(database_name, logger=None):
                 date_inserted DATETIME NOT NULL,
                 date_crawled DATETIME,
                 link TEXT NOT NULL,
+                mime_type TEXT,
                 content TEXT,
                 content_hash TEXT,
                 status TEXT NOT NULL CHECK(status IN ('pending', 'crawled'))
             )
             """
         )
+        # Check if the mime_type column exists (for auto-migration of existing databases)
+        cursor.execute("PRAGMA table_info(crawled_data)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "mime_type" not in columns:
+            cursor.execute("ALTER TABLE crawled_data ADD COLUMN mime_type TEXT")
+            if logger:
+                logger.info("Auto-migration: added mime_type column to crawled_data.")
+
         # Ensure idx_link is a UNIQUE index for UPSERT compatibility and data integrity.
         cursor.execute(
             "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_link'"
@@ -216,7 +225,13 @@ def reset_link_to_pending(database_name, link, logger=None):
 
 
 def update_queue_link(
-    database_name, link, content, content_hash, status="crawled", logger=None
+    database_name,
+    link,
+    content,
+    content_hash,
+    status="crawled",
+    mime_type=None,
+    logger=None,
 ) -> bool:
     """Update a link in the crawl queue with content, hash, date_crawled, and mark it with the given status.
 
@@ -233,10 +248,10 @@ def update_queue_link(
             cursor.execute(
                 """
                 UPDATE crawled_data
-                SET content = ?, content_hash = ?, status = ?, date_crawled = ?
+                SET content = ?, content_hash = ?, status = ?, date_crawled = ?, mime_type = ?
                 WHERE link = ?
                 """,
-                (content, content_hash, status, datetime.now(), link),
+                (content, content_hash, status, datetime.now(), mime_type, link),
             )
             conn.commit()
             logger.info(f"Updated queue link in database: {link}")

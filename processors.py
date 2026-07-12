@@ -110,6 +110,9 @@ class NewsContentProcessor(BaseContentProcessor):
         # Memory Optimization: Free the heavy BeautifulSoup parse tree immediately
         soup = None
 
+        # Extract MIME type from content_type header (excluding charset properties)
+        mime_type = content_type.split(";")[0].strip() if content_type else None
+
         # 1. Update core crawl queue status and raw HTML content cache
         success = update_queue_link(
             crawler.database_name,
@@ -117,6 +120,7 @@ class NewsContentProcessor(BaseContentProcessor):
             content,
             content_hash,
             status="crawled",
+            mime_type=mime_type,
             logger=crawler.logger,
         )
         if not success:
@@ -295,6 +299,9 @@ class SupermarketContentProcessor(BaseContentProcessor):
 
         soup = None
 
+        # Extract MIME type from content_type header (excluding charset properties)
+        mime_type = content_type.split(";")[0].strip() if content_type else None
+
         # 1. Update Core Queue
         success = update_queue_link(
             crawler.database_name,
@@ -302,6 +309,7 @@ class SupermarketContentProcessor(BaseContentProcessor):
             content,
             content_hash,
             status="crawled",
+            mime_type=mime_type,
             logger=crawler.logger,
         )
         if not success:
@@ -428,6 +436,9 @@ class ForumContentProcessor(BaseContentProcessor):
 
         soup = None
 
+        # Extract MIME type from content_type header (excluding charset properties)
+        mime_type = content_type.split(";")[0].strip() if content_type else None
+
         # 1. Update Core Queue
         success = update_queue_link(
             crawler.database_name,
@@ -435,6 +446,7 @@ class ForumContentProcessor(BaseContentProcessor):
             content,
             content_hash,
             status="crawled",
+            mime_type=mime_type,
             logger=crawler.logger,
         )
         if not success:
