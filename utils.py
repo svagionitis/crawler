@@ -129,7 +129,11 @@ def fetch_page(
             # Check the Content-Type header
             content_type = response.headers.get("Content-Type", "").lower()
 
-            if "text/" in content_type:
+            if (
+                "text/" in content_type
+                or "xml" in content_type
+                or "json" in content_type
+            ):
                 html_text = response.text
                 if auto_detect_js and "text/html" in content_type:
                     if detects_javascript_required(html_text, logger=logger):
@@ -235,7 +239,7 @@ def fetch_page(
 
 
 def extract_links(base_url, html_content, robots_parser, soup=None, logger=None):
-    """Extract all links from the HTML content that belong to the same domain and are allowed by robots.txt.
+    """Extract all links from the HTML content, sitemaps, or RSS feeds that belong to the same domain and are allowed by robots.txt.
 
     Args:
         soup: Optional pre-parsed BeautifulSoup object.  When provided,
@@ -244,12 +248,63 @@ def extract_links(base_url, html_content, robots_parser, soup=None, logger=None)
     """
     if logger is None:
         logger = logging.getLogger(__name__)
-    if soup is None:
-        soup = BeautifulSoup(html_content, "html.parser")
+
     base_netloc = urlparse(
         base_url
     ).netloc  # hoisted outside the loop — urlparse is not free
     links = set()
+
+    if not html_content:
+        return links
+
+    # 1. Detect and parse XML (Sitemaps, RSS, and Atom feeds)
+    trimmed_content = html_content.strip()
+    if (
+        trimmed_content.startswith("<?xml")
+        or trimmed_content.startswith("<urlset")
+        or trimmed_content.startswith("<sitemapindex")
+        or trimmed_content.startswith("<rss")
+        or trimmed_content.startswith("<feed")
+    ):
+        try:
+            import xml.etree.ElementTree as ET
+
+            root = ET.fromstring(html_content.encode("utf-8", errors="ignore"))
+            for elem in root.iter():
+                tag_local = elem.tag.split("}")[-1]
+                raw_link = None
+                if tag_local == "loc":
+                    raw_link = elem.text
+                elif tag_local == "link":
+                    # Atom uses <link href="...">, RSS uses <link>...</link>
+                    raw_link = elem.attrib.get("href") or elem.text
+
+                if raw_link:
+                    raw_link = raw_link.strip()
+                    try:
+                        link = urljoin(base_url, raw_link)
+                        if urlparse(link).netloc == base_netloc:
+                            if not robots_parser or robots_parser.can_fetch(
+                                CrawlerConfig().user_agent, link
+                            ):
+                                links.add(link)
+                            else:
+                                logger.info(f"Skipping disallowed link: {link}")
+                    except ValueError as e:
+                        logger.warning(
+                            f"Failed to parse XML feed/sitemap link: {raw_link} ({e})"
+                        )
+            return links
+        except Exception as xml_err:
+            logger.warning(
+                f"Failed to parse content as XML: {xml_err}. Falling back to HTML parser."
+            )
+
+    # 2. Parse HTML content
+    if soup is None:
+        soup = BeautifulSoup(html_content, "html.parser")
+
+    # Extract standard anchor tags
     for a_tag in soup.find_all("a", href=True):
         try:
             link = urljoin(base_url, a_tag["href"])
@@ -262,6 +317,44 @@ def extract_links(base_url, html_content, robots_parser, soup=None, logger=None)
                     logger.info(f"Skipping disallowed link: {link}")
         except ValueError as e:
             logger.warning(f"Failed to extract href link: {a_tag['href']} ({e})")
+
+    # Extract document links (<link href="...">) excluding styles, icons, and preloads
+    for link_tag in soup.find_all("link", href=True):
+        rel = link_tag.get("rel", [])
+        if isinstance(rel, str):
+            rel = [rel]
+        if any(
+            r.lower()
+            in ("stylesheet", "icon", "shortcut icon", "preload", "dns-prefetch")
+            for r in rel
+        ):
+            continue
+        try:
+            link = urljoin(base_url, link_tag["href"])
+            if urlparse(link).netloc == base_netloc:
+                if not robots_parser or robots_parser.can_fetch(
+                    CrawlerConfig().user_agent, link
+                ):
+                    links.add(link)
+                else:
+                    logger.info(f"Skipping disallowed link: {link}")
+        except ValueError as e:
+            logger.warning(f"Failed to extract <link> tag: {link_tag['href']} ({e})")
+
+    # Extract scripts (<script src="...">)
+    for script_tag in soup.find_all("script", src=True):
+        try:
+            link = urljoin(base_url, script_tag["src"])
+            if urlparse(link).netloc == base_netloc:
+                if not robots_parser or robots_parser.can_fetch(
+                    CrawlerConfig().user_agent, link
+                ):
+                    links.add(link)
+                else:
+                    logger.info(f"Skipping disallowed link: {link}")
+        except ValueError as e:
+            logger.warning(f"Failed to extract script src: {script_tag['src']} ({e})")
+
     return links
 
 

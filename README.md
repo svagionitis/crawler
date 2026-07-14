@@ -581,7 +581,7 @@ Pending links remain in the database with `status = 'pending'`, so you can resum
 
 - **Dynamic / JavaScript-Rendered Sites** — The crawler supports scraping sites with client-side JavaScript rendering using headless browser engines (Playwright, Selenium, or Puppeteer/Pyppeteer), but this functionality is **currently untested** in production environments.
 - **Plagiarism & Duplicate Content Detection** — To check if news reports are plagiarized or cover identical stories, extracted article texts can be compared using natural language processing (NLP) and similarity algorithms (such as MinHash/LSH, Cosine Similarity via TF-IDF or word/document embeddings, and sequence alignment).
-- **Link extraction limited to `<a href>`** — `<link>`, `<script src>`, sitemaps, and RSS feeds are not followed.
+- **Extensible Link Extraction** — Automatically discovers and crawls links from standard anchors (`<a>`), document header links (`<link>` excluding style/preloads), script links (`<script src="...">`), XML Sitemaps, and RSS/Atom feeds to ensure complete site indexing.
 
 ---
 
