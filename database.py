@@ -16,9 +16,17 @@ def get_connection(database_name):
     if database_name not in _local.connections:
         conn = sqlite3.connect(database_name)
         # WAL mode allows concurrent reads during writes — essential for multi-threading.
-        # We also set a high busy timeout to handle concurrent write access elegantly.
         conn.execute("PRAGMA journal_mode=WAL")
+        # We also set a high busy timeout to handle concurrent write access elegantly.
         conn.execute("PRAGMA busy_timeout=30000")
+        # Reduce disk sync overhead in WAL mode (highly reduces I/O)
+        conn.execute("PRAGMA synchronous=NORMAL")
+        # Keep temporary tables & indexes in memory (saves I/O & CPU)
+        conn.execute("PRAGMA temp_store=MEMORY")
+        # Increase the cache size to 10MB to hold more index pages in memory (saves I/O)
+        conn.execute("PRAGMA cache_size=-10000")
+        # Enable Memory-Mapped I/O for direct OS-level caching (saves CPU & kernel overhead)
+        conn.execute("PRAGMA mmap_size=268435456")
         _local.connections[database_name] = conn
     return _local.connections[database_name]
 

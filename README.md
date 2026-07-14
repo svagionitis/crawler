@@ -380,6 +380,14 @@ Each window's title bar shows the URL being crawled. Sites currently configured 
 
 Each domain gets its own SQLite file named `crawled_data_<domain>.db` inside `--db-dir`. The database uses Write-Ahead Log (WAL) mode (`PRAGMA journal_mode=WAL`) to support concurrent writes from multiple worker threads without locking.
 
+To optimize performance (CPU, memory, and Disk I/O), connections are opened with the following connection-level `PRAGMA` settings:
+- **`PRAGMA journal_mode=WAL;`**: Enables Write-Ahead Logging to allow concurrent reads during writes.
+- **`PRAGMA busy_timeout=30000;`**: Sets a 30-second busy handler to prevent lock contention errors.
+- **`PRAGMA synchronous=NORMAL;`**: Significantly reduces disk synchronization frequency in WAL mode, dramatically reducing Disk I/O write operations while keeping the DB corruption-safe against application crashes.
+- **`PRAGMA temp_store=MEMORY;`**: Stores temporary tables and indexes in RAM instead of on disk.
+- **`PRAGMA cache_size=-10000;`**: Sets a ~10 MB cache size to keep more index/table pages in memory, reducing Disk I/O reads.
+- **`PRAGMA mmap_size=268435456;`**: Enables memory-mapped I/O (up to 256 MB) to reduce CPU cycles and system call overhead for disk reads.
+
 ```sql
 -- Core queue table (domain-agnostic queue manager)
 CREATE TABLE crawled_data (
