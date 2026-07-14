@@ -275,3 +275,54 @@ These Python projects can be directly added as dependencies (`requirements.txt`)
 
 ### C. Scrapy's AutoThrottle (Smart Rate Limiting)
 *   **Inspiration**: Dynamic, latency-based delay adjustment. Instead of utilizing a static `--crawl-delay`, we can calculate a sliding average of the response latencies from target sites. If the response latency climbs, the crawler increases the delay dynamically to protect the server; if the latency is low, it safely reduces the delay toward a minimum threshold.
+
+---
+
+## 13. Presenting Crawler Findings (Web Dashboard Architecture)
+
+### Ruby on Rails Web App Integration (Decoupled SQLite Access)
+*   **Concept**: Presenting news, supermarket products, or forum posts scraped by the crawler in a modern web interface.
+*   **Application**:
+    Ruby on Rails is highly recommended for building the web dashboard, using **Option A (Decoupled SQLite Access)** where the crawler and the web application remain separate codebases communicating directly via the SQLite database files.
+
+    #### A. How Rails Fits SQLite
+    * **First-Class SQLite Support**: Rails 8+ introduces default configurations tuned specifically for production SQLite (enabling Write-Ahead Logging `WAL`, setting `synchronous = NORMAL`, and configuring busy timeouts). This perfectly aligns with our optimized connection settings.
+    * **Active Record ORM**: Rails models map cleanly to our `news_articles`, `supermarket_products`, and `forum_posts` tables.
+    * **Fast Full-Text Search**: Leverage the FTS5 tables we built directly inside Active Record queries:
+      ```ruby
+      # app/models/news_article.rb
+      class NewsArticle < ApplicationRecord
+        self.primary_key = :link
+
+        def self.search(query_string)
+          joins("JOIN news_articles_fts ON news_articles.rowid = news_articles_fts.rowid")
+            .where("news_articles_fts MATCH ?", query_string)
+            .order("rank")
+        end
+      end
+      ```
+
+    #### B. Implementation Design (Option A: Decoupled)
+    ```mermaid
+    graph LR
+        Crawler[Python Scraper] -->|Writes to| DB[(SQLite DB Files)]
+        RailsApp[Rails Web App] -->|Reads from| DB
+        User[Browser Client] <-->|HTTP / HTML / Hotwire| RailsApp
+    ```
+
+    * **Data Sharing**: The Python crawler runs as a background process and writes data directly to `/db/crawled_data_<domain>.db`. The Rails web application connects to these files in read-only (or read-write) mode to display the articles, products, or posts in real-time.
+    * **Database Configuration**: Configure Rails to connect to the crawler's SQLite files dynamically:
+      ```yaml
+      # config/database.yml (Rails)
+      production:
+        adapter: sqlite3
+        database: path/to/echidna/db/crawled_data_kathimerini.gr.db
+        timeout: 5000
+      ```
+    * **Pros**:
+      * Complete isolation between crawler logic (Python) and presentation logic (Ruby).
+      * No network overhead between the scraper and the web app (shared disk access).
+      * Minimal setup cost; Rails provides scaffolding out of the box to instantly build views and searches.
+    * **Cons / Hosting Considerations**:
+      * Both applications must reside on the same server (or share a network-mounted volume) to access the SQLite files.
+      * Standard serverless/ephemeral platforms (like Heroku) are not suitable; a traditional VPS (DigitalOcean, Hetzner, AWS EC2) with persistent storage is required.
