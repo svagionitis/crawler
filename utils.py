@@ -1,7 +1,7 @@
 import requests
 import time
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urldefrag
 import hashlib
 import logging
 from config import CrawlerConfig
@@ -282,7 +282,7 @@ def extract_links(base_url, html_content, robots_parser, soup=None, logger=None)
                 if raw_link:
                     raw_link = raw_link.strip()
                     try:
-                        link = urljoin(base_url, raw_link)
+                        link = urldefrag(urljoin(base_url, raw_link))[0]
                         if urlparse(link).netloc == base_netloc:
                             if not robots_parser or robots_parser.can_fetch(
                                 CrawlerConfig().user_agent, link
@@ -307,7 +307,7 @@ def extract_links(base_url, html_content, robots_parser, soup=None, logger=None)
     # Extract standard anchor tags
     for a_tag in soup.find_all("a", href=True):
         try:
-            link = urljoin(base_url, a_tag["href"])
+            link = urldefrag(urljoin(base_url, a_tag["href"]))[0]
             if urlparse(link).netloc == base_netloc:
                 if not robots_parser or robots_parser.can_fetch(
                     CrawlerConfig().user_agent, link
@@ -330,7 +330,7 @@ def extract_links(base_url, html_content, robots_parser, soup=None, logger=None)
         ):
             continue
         try:
-            link = urljoin(base_url, link_tag["href"])
+            link = urldefrag(urljoin(base_url, link_tag["href"]))[0]
             if urlparse(link).netloc == base_netloc:
                 if not robots_parser or robots_parser.can_fetch(
                     CrawlerConfig().user_agent, link
@@ -344,7 +344,7 @@ def extract_links(base_url, html_content, robots_parser, soup=None, logger=None)
     # Extract scripts (<script src="...">)
     for script_tag in soup.find_all("script", src=True):
         try:
-            link = urljoin(base_url, script_tag["src"])
+            link = urldefrag(urljoin(base_url, script_tag["src"]))[0]
             if urlparse(link).netloc == base_netloc:
                 if not robots_parser or robots_parser.can_fetch(
                     CrawlerConfig().user_agent, link
