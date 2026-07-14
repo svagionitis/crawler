@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "greek-news-scraper"
+name = "echidna"
 version = "0.1.0"
-description = "A producer-consumer web crawler designed for Greek news portals and plagiarism analysis."
+description = "A general-purpose, polite producer-consumer web crawler designed for news portals, supermarkets, forums, and other websites, featuring plagiarism and similarity analysis."
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [

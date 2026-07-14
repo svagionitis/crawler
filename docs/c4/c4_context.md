@@ -1,6 +1,6 @@
 # C4 Model - Level 1: System Context Diagram
 
-This diagram shows the GreekNewsScraper Crawler system boundaries, the users/operators interacting with it, and the external dependencies or systems it communicates with.
+This diagram shows the Echidna Crawler system boundaries, the users/operators interacting with it, and the external dependencies or systems it communicates with.
 
 ## ASCII Diagram
 
@@ -15,18 +15,18 @@ This diagram shows the GreekNewsScraper Crawler system boundaries, the users/ope
                     v
 +-------------------+-------------------+
 |                                       |
-|        News Crawler System            |  Reads settings
+|        Echidna Crawler System         |  Reads settings
 |     (Executes site scraping,          +------------------->  Local JSON Config
-|      parses & stores articles)        |                      (sites.json)
+|      parses & stores content)         |                      (sites.json)
 |                                       |
 +---------+-------------------+---------+
-          |                   |
-          | Scrapes           | Reroutes (optional)
-          v                   v
+           |                   |
+           | Scrapes           | Reroutes (optional)
+           v                   v
 +---------+---------+   +-----+-------------+
-|  News Websites    |   | Tor / Proxy       |
-|  (Target hosts    |   | Services          |
-|   e.g. tovima.gr) |   | (IP Rotation)     |
+| Target Websites   |   | Tor / Proxy       |
+| (News, Forums,    |   | Services          |
+|  Supermarkets)    |   | (IP Rotation)     |
 +-------------------+   +-------------------+
 ```
 
@@ -35,9 +35,9 @@ This diagram shows the GreekNewsScraper Crawler system boundaries, the users/ope
 ```mermaid
 graph TD
     User["Developer / Operator (User)"]
-    Crawler["News Crawler System (Python Scraper)"]
-    Config["Local JSON Config (sites.json / news-sites-gr.json)"]
-    Websites["News Websites (Target HTML Servers)"]
+    Crawler["Echidna Crawler System (Python Scraper)"]
+    Config["Local JSON Config (sites.json / multi-site configurations)"]
+    Websites["Target Websites (News, Forums, Supermarkets, etc.)"]
     Proxy["Tor / Proxy Services (SOCKS5/HTTP Proxy)"]
 
     User -->|Triggers & Coordinates| Crawler
@@ -53,9 +53,9 @@ graph TD
 * **Developer / Operator**: Triggers the crawler execution either via a single target URL (`--url`) or using parallel configurations (`--config`). They read log outputs and query the generated SQLite databases.
 
 ### Software System
-* **News Crawler System**: The core Python application (`crawler_app.py`). It orchestrates connection management, respects crawling rules (such as `robots.txt`), performs boilerplate removal and text extraction, flags near-duplicate articles, and stores structured content.
+* **Echidna Crawler System**: The core Python application (`crawler_app.py`). It orchestrates connection management, respects crawling rules (such as `robots.txt`), performs boilerplate removal and text/catalog extraction, flags near-duplicate content/articles, and stores structured content.
 
 ### External Dependencies & Systems
-* **Local JSON Config**: Local configuration files containing target news site urls, crawl delays, re-crawl times, and proxy preferences.
-* **News Websites**: Remote HTTP/HTTPS servers hosting target news portals. These are scraped strictly following their `robots.txt` directives.
+* **Local JSON Config**: Local configuration files containing target site urls, crawl delays, re-crawl times, and proxy preferences.
+* **Target Websites**: Remote HTTP/HTTPS servers hosting target portals (news portals, supermarket catalogs, forums, etc.). These are scraped strictly following their `robots.txt` directives.
 * **Tor / Proxy Services**: Services (e.g. SOCKS5h Tor wrapper or HTTP proxies) optional for connection routing, helping bypass rate-limits, prevent IP blocks, and ensure anonymity.

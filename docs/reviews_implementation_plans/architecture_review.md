@@ -1,6 +1,6 @@
-# Architectural Review: Greek News Scraper & Crawler
+# Architectural Review: Echidna Crawler
 
-This document analyzes the architecture of the news crawler from a Senior Python Software Engineer perspective. It evaluates the current component division, concurrency model, data flow, and proposes a path toward a more maintainable, testable, and scalable codebase.
+This document analyzes the architecture of the crawler from a Senior Python Software Engineer perspective. It evaluates the current component division, concurrency model, data flow, and proposes a path toward a more maintainable, testable, and scalable codebase.
 
 ---
 

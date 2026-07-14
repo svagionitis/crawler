@@ -28,7 +28,7 @@ class CrawlerConfig:
     # Network settings
     proxy: Optional[str] = None
     keep_alive: Optional[bool] = None
-    user_agent: str = "Crawler/1.0 (+https://example.com/crawler)"
+    user_agent: str = "Echidna/1.0 (+https://github.com/svagionitis/echidna)"
     processor: str = "news"
 
     # JavaScript rendering settings

@@ -1,6 +1,6 @@
 # Future Architectural & Engineering Patterns
 
-This document details proposed architectural patterns, engineering practices, and advanced features inspired by mature projects like `yt-dlp` that can be integrated into the Greek News Scraper in future development phases.
+This document details proposed architectural patterns, engineering practices, and advanced features inspired by mature projects like `yt-dlp` that can be integrated into Echidna in future development phases.
 
 ---
 

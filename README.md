@@ -1,6 +1,8 @@
-# Polite Web Crawler
+# Echidna: A Polite Multi-Purpose Web Crawler
 
-A lightweight, polite web crawler written in Python that scrapes websites and stores raw page content along with extracted page/article metadata in a per-domain SQLite database. Built with `robots.txt` compliance, configurable crawl delays, exponential-backoff retries, SHA-256 duplicate detection, and resume support.
+**Echidna** (named after the legendary Greek mythological monster—half-woman, half-serpent, known as the mother of many monsters) is a general-purpose, polite, multi-threaded web crawler written in Python. Just as the mythological Echidna is multi-faceted, this crawler is built with modular extraction pipelines to scrape not just **news portals**, but also **supermarket sites** (for price and catalog data), **forums** (for thread/post archiving), and other web resources.
+
+It stores raw page content along with extracted structured metadata in per-domain SQLite databases. Built with `robots.txt` compliance, configurable crawl delays, exponential-backoff retries, SHA-256 duplicate detection, and resume support.
 
 ---
 
