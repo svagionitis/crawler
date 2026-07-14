@@ -28,29 +28,29 @@ def init_similarity_db(db_path, logger=None):
         # Create global signatures index table
         cursor.execute(
             """
-            CREATE TABLE IF NOT EXISTS global_signatures (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                domain TEXT NOT NULL,
-                url TEXT UNIQUE NOT NULL,
-                title TEXT,
-                date_crawled DATETIME,
-                date_inserted DATETIME DEFAULT CURRENT_TIMESTAMP,
-                text_signature BLOB NOT NULL
-            )
-        """
+             CREATE TABLE IF NOT EXISTS global_signatures (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 domain TEXT NOT NULL CHECK(length(domain) > 0),
+                 url TEXT UNIQUE NOT NULL CHECK(length(url) > 0),
+                 title TEXT,
+                 date_crawled DATETIME,
+                 date_inserted DATETIME DEFAULT CURRENT_TIMESTAMP,
+                 text_signature BLOB NOT NULL
+             )
+         """
         )
 
         # Create matching pair references
         cursor.execute(
             """
-            CREATE TABLE IF NOT EXISTS plagiarism_matches (
-                source_url TEXT NOT NULL,
-                target_url TEXT NOT NULL,
-                similarity_score REAL NOT NULL,
-                match_type TEXT NOT NULL,
-                PRIMARY KEY (source_url, target_url)
-            )
-        """
+             CREATE TABLE IF NOT EXISTS plagiarism_matches (
+                 source_url TEXT NOT NULL CHECK(length(source_url) > 0),
+                 target_url TEXT NOT NULL CHECK(length(target_url) > 0),
+                 similarity_score REAL NOT NULL CHECK(similarity_score >= 0.0 AND similarity_score <= 1.0),
+                 match_type TEXT NOT NULL CHECK(length(match_type) > 0),
+                 PRIMARY KEY (source_url, target_url)
+             )
+         """
         )
 
         # Create LSH buckets table and index

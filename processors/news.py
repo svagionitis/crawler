@@ -23,7 +23,7 @@ class NewsContentProcessor(BaseContentProcessor):
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS news_articles (
-                    link TEXT PRIMARY KEY,
+                    link TEXT PRIMARY KEY CHECK(length(link) > 0),
                     extracted_title TEXT,
                     extracted_text TEXT,
                     extracted_authors TEXT,

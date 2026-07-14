@@ -19,9 +19,9 @@ class SupermarketContentProcessor(BaseContentProcessor):
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS supermarket_products (
-                    link TEXT PRIMARY KEY,
+                    link TEXT PRIMARY KEY CHECK(length(link) > 0),
                     product_name TEXT,
-                    price REAL,
+                    price REAL CHECK(price >= 0.0),
                     sku TEXT,
                     category TEXT,
                     FOREIGN KEY(link) REFERENCES crawled_data(link) ON DELETE CASCADE

@@ -65,10 +65,10 @@ def init_db(database_name, logger=None):
             """
             CREATE TABLE IF NOT EXISTS crawled_data (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                domain TEXT NOT NULL,
+                domain TEXT NOT NULL CHECK(length(domain) > 0),
                 date_inserted DATETIME NOT NULL,
                 date_crawled DATETIME,
-                link TEXT NOT NULL,
+                link TEXT NOT NULL CHECK(length(link) > 0),
                 mime_type TEXT,
                 content TEXT,
                 content_hash TEXT,

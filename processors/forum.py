@@ -19,7 +19,7 @@ class ForumContentProcessor(BaseContentProcessor):
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS forum_posts (
-                    link TEXT PRIMARY KEY,
+                    link TEXT PRIMARY KEY CHECK(length(link) > 0),
                     thread_title TEXT,
                     author TEXT,
                     post_content TEXT,
