@@ -393,10 +393,10 @@ To optimize performance (CPU, memory, and Disk I/O), connections are opened with
 -- Core queue table (domain-agnostic queue manager)
 CREATE TABLE crawled_data (
     id                 INTEGER  PRIMARY KEY AUTOINCREMENT,
-    domain             TEXT     NOT NULL,
+    domain             TEXT     NOT NULL CHECK(length(domain) > 0),
     date_inserted      DATETIME NOT NULL,   -- when the link was first discovered / last updated
     date_crawled       DATETIME,            -- when the page was last successfully fetched
-    link               TEXT     NOT NULL,
+    link               TEXT     NOT NULL CHECK(length(link) > 0),
     mime_type          TEXT,                -- MIME type parsed from Content-Type (e.g. 'text/html')
     content            TEXT,                -- HTML (text) or Base64 (binary)
     content_hash       TEXT,                -- SHA-256 of content; also stored on fetch errors
@@ -406,7 +406,7 @@ CREATE TABLE crawled_data (
 
 -- News payload table (news domain strategy specific)
 CREATE TABLE news_articles (
-    link               TEXT     PRIMARY KEY, -- references crawled_data(link)
+    link               TEXT     PRIMARY KEY CHECK(length(link) > 0), -- references crawled_data(link)
     extracted_title    TEXT,                 -- article headline
     extracted_text     TEXT,                 -- clean body text (boilerplate removed)
     extracted_authors  TEXT,                 -- comma-separated author list
@@ -418,9 +418,9 @@ CREATE TABLE news_articles (
 
 -- Supermarket payload table (supermarket domain strategy specific)
 CREATE TABLE supermarket_products (
-    link               TEXT     PRIMARY KEY, -- references crawled_data(link)
+    link               TEXT     PRIMARY KEY CHECK(length(link) > 0), -- references crawled_data(link)
     product_name       TEXT,                 -- product name
-    price              REAL,                 -- price value
+    price              REAL     CHECK(price >= 0.0), -- price value
     sku                TEXT,                 -- SKU code
     category           TEXT,                 -- product category
     FOREIGN KEY(link) REFERENCES crawled_data(link) ON DELETE CASCADE
@@ -428,7 +428,7 @@ CREATE TABLE supermarket_products (
 
 -- Forum payload table (forum domain strategy specific)
 CREATE TABLE forum_posts (
-    link               TEXT     PRIMARY KEY, -- references crawled_data(link)
+    link               TEXT     PRIMARY KEY CHECK(length(link) > 0), -- references crawled_data(link)
     thread_title       TEXT,                 -- thread title
     author             TEXT,                 -- post author name
     post_content       TEXT,                 -- text body of the post
