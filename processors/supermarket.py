@@ -28,6 +28,43 @@ class SupermarketContentProcessor(BaseContentProcessor):
                 )
                 """
             )
+            # Create external content FTS5 virtual table for supermarket products
+            cursor.execute(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS supermarket_products_fts USING fts5(
+                    product_name,
+                    category,
+                    content='supermarket_products'
+                )
+                """
+            )
+            # Triggers to keep FTS5 in sync with supermarket_products
+            cursor.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS supermarket_products_ai AFTER INSERT ON supermarket_products BEGIN
+                    INSERT INTO supermarket_products_fts(rowid, product_name, category)
+                    VALUES (new.rowid, new.product_name, new.category);
+                END;
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS supermarket_products_ad AFTER DELETE ON supermarket_products BEGIN
+                    INSERT INTO supermarket_products_fts(supermarket_products_fts, rowid, product_name, category)
+                    VALUES ('delete', old.rowid, old.product_name, old.category);
+                END;
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS supermarket_products_au AFTER UPDATE ON supermarket_products BEGIN
+                    INSERT INTO supermarket_products_fts(supermarket_products_fts, rowid, product_name, category)
+                    VALUES ('delete', old.rowid, old.product_name, old.category);
+                    INSERT INTO supermarket_products_fts(rowid, product_name, category)
+                    VALUES (new.rowid, new.product_name, new.category);
+                END;
+                """
+            )
             conn.commit()
         self._db_initialized.add(database_name)
 

@@ -34,6 +34,43 @@ class NewsContentProcessor(BaseContentProcessor):
                 )
                 """
             )
+            # Create external content FTS5 virtual table for news articles
+            cursor.execute(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS news_articles_fts USING fts5(
+                    extracted_title,
+                    extracted_text,
+                    content='news_articles'
+                )
+                """
+            )
+            # Triggers to keep FTS5 in sync with news_articles
+            cursor.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS news_articles_ai AFTER INSERT ON news_articles BEGIN
+                    INSERT INTO news_articles_fts(rowid, extracted_title, extracted_text)
+                    VALUES (new.rowid, new.extracted_title, new.extracted_text);
+                END;
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS news_articles_ad AFTER DELETE ON news_articles BEGIN
+                    INSERT INTO news_articles_fts(news_articles_fts, rowid, extracted_title, extracted_text)
+                    VALUES ('delete', old.rowid, old.extracted_title, old.extracted_text);
+                END;
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS news_articles_au AFTER UPDATE ON news_articles BEGIN
+                    INSERT INTO news_articles_fts(news_articles_fts, rowid, extracted_title, extracted_text)
+                    VALUES ('delete', old.rowid, old.extracted_title, old.extracted_text);
+                    INSERT INTO news_articles_fts(rowid, extracted_title, extracted_text)
+                    VALUES (new.rowid, new.extracted_title, new.extracted_text);
+                END;
+                """
+            )
             conn.commit()
         self._db_initialized.add(database_name)
 

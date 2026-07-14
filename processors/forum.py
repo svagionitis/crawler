@@ -28,6 +28,43 @@ class ForumContentProcessor(BaseContentProcessor):
                 )
                 """
             )
+            # Create external content FTS5 virtual table for forum posts
+            cursor.execute(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS forum_posts_fts USING fts5(
+                    thread_title,
+                    post_content,
+                    content='forum_posts'
+                )
+                """
+            )
+            # Triggers to keep FTS5 in sync with forum_posts
+            cursor.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS forum_posts_ai AFTER INSERT ON forum_posts BEGIN
+                    INSERT INTO forum_posts_fts(rowid, thread_title, post_content)
+                    VALUES (new.rowid, new.thread_title, new.post_content);
+                END;
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS forum_posts_ad AFTER DELETE ON forum_posts BEGIN
+                    INSERT INTO forum_posts_fts(forum_posts_fts, rowid, thread_title, post_content)
+                    VALUES ('delete', old.rowid, old.thread_title, old.post_content);
+                END;
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS forum_posts_au AFTER UPDATE ON forum_posts BEGIN
+                    INSERT INTO forum_posts_fts(forum_posts_fts, rowid, thread_title, post_content)
+                    VALUES ('delete', old.rowid, old.thread_title, old.post_content);
+                    INSERT INTO forum_posts_fts(rowid, thread_title, post_content)
+                    VALUES (new.rowid, new.thread_title, new.post_content);
+                END;
+                """
+            )
             conn.commit()
         self._db_initialized.add(database_name)
 

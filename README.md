@@ -442,6 +442,25 @@ CREATE INDEX        idx_status        ON crawled_data (status);
 CREATE INDEX        idx_link_status   ON crawled_data (link, status);
 -- Unique index for DB-level duplicate detection (NULLs are exempt)
 CREATE UNIQUE INDEX idx_content_hash  ON crawled_data (content_hash);
+
+-- Full-Text Search (FTS5) external content tables for fast keyword queries
+CREATE VIRTUAL TABLE news_articles_fts USING fts5(
+    extracted_title,
+    extracted_text,
+    content='news_articles'
+);
+
+CREATE VIRTUAL TABLE supermarket_products_fts USING fts5(
+    product_name,
+    category,
+    content='supermarket_products'
+);
+
+CREATE VIRTUAL TABLE forum_posts_fts USING fts5(
+    thread_title,
+    post_content,
+    content='forum_posts'
+);
 ```
 
 > **Migration note for existing databases**
