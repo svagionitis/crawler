@@ -389,3 +389,75 @@ def is_duplicate_content(database_name, content_hash: str, logger=None) -> bool:
     except sqlite3.Error as e:
         logger.error(f"Database error while checking duplicate content hash: {e}")
         return False  # Assume not a duplicate so the page is not silently dropped
+
+
+def search_full_text(database_name, table_type, query_string, limit=None, logger=None):
+    """Perform a fast full-text query using FTS5 virtual tables.
+
+    Args:
+        database_name (str): Path to the SQLite database.
+        table_type (str): Type of search ("news", "supermarket", or "forum").
+        query_string (str): The FTS5 search query string.
+        limit (int | None): Maximum number of search results to return.
+        logger: Optional logger instance.
+
+    Returns:
+        list[dict]: List of matching records with their details and search rank.
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    results = []
+    if table_type == "news":
+        query = """
+            SELECT a.link, a.extracted_title, a.extracted_text, a.extracted_authors, a.extracted_date, f.rank
+            FROM news_articles a
+            JOIN news_articles_fts f ON a.rowid = f.rowid
+            WHERE news_articles_fts MATCH ?
+            ORDER BY rank
+        """
+        keys = [
+            "link",
+            "extracted_title",
+            "extracted_text",
+            "extracted_authors",
+            "extracted_date",
+            "rank",
+        ]
+    elif table_type == "supermarket":
+        query = """
+            SELECT p.link, p.product_name, p.price, p.sku, p.category, f.rank
+            FROM supermarket_products p
+            JOIN supermarket_products_fts f ON p.rowid = f.rowid
+            WHERE supermarket_products_fts MATCH ?
+            ORDER BY rank
+        """
+        keys = ["link", "product_name", "price", "sku", "category", "rank"]
+    elif table_type == "forum":
+        query = """
+            SELECT fp.link, fp.thread_title, fp.author, fp.post_content, fp.post_date, f.rank
+            FROM forum_posts fp
+            JOIN forum_posts_fts f ON fp.rowid = f.rowid
+            WHERE forum_posts_fts MATCH ?
+            ORDER BY rank
+        """
+        keys = ["link", "thread_title", "author", "post_content", "post_date", "rank"]
+    else:
+        logger.error(f"Invalid table_type for search: {table_type}")
+        return results
+
+    if limit is not None:
+        query += " LIMIT ?"
+
+    try:
+        conn = get_connection(database_name)
+        with conn:
+            cursor = conn.cursor()
+            params = (query_string,) if limit is None else (query_string, limit)
+            cursor.execute(query, params)
+            for row in cursor.fetchall():
+                results.append(dict(zip(keys, row)))
+    except sqlite3.Error as e:
+        logger.error(f"Full-text search query failed: {e}")
+
+    return results
