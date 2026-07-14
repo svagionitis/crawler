@@ -27,6 +27,8 @@ def get_connection(database_name):
         conn.execute("PRAGMA cache_size=-10000")
         # Enable Memory-Mapped I/O for direct OS-level caching (saves CPU & kernel overhead)
         conn.execute("PRAGMA mmap_size=268435456")
+        # Enable foreign key constraint enforcement (disabled by default in SQLite)
+        conn.execute("PRAGMA foreign_keys=ON")
         _local.connections[database_name] = conn
     return _local.connections[database_name]
 

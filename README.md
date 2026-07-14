@@ -387,6 +387,7 @@ To optimize performance (CPU, memory, and Disk I/O), connections are opened with
 - **`PRAGMA temp_store=MEMORY;`**: Stores temporary tables and indexes in RAM instead of on disk.
 - **`PRAGMA cache_size=-10000;`**: Sets a ~10 MB cache size to keep more index/table pages in memory, reducing Disk I/O reads.
 - **`PRAGMA mmap_size=268435456;`**: Enables memory-mapped I/O (up to 256 MB) to reduce CPU cycles and system call overhead for disk reads.
+- **`PRAGMA foreign_keys=ON;`**: Enforces foreign key constraints (disabled by default in SQLite) to ensure child rows (e.g. articles, products) are correctly cascade-deleted if their parent queue entries are deleted.
 
 ```sql
 -- Core queue table (domain-agnostic queue manager)
